@@ -1,71 +1,72 @@
 # ape-bot
 
-Robô de Telegram que procura imóveis para alugar em Belo Horizonte (QuintoAndar e Zap) nas rodadas
-das 06, 09, 12, 15, 18, 21 e 23h e manda para cada pessoa, um por vez, das 8h às 22h, os que batem
-com os filtros dela (bairros por regional, aluguel máximo, quartos mínimos, tipo). Às 23h sai um
-resumo do dia.
+Telegram bot that searches for rental properties in Belo Horizonte (QuintoAndar and Zap) in rounds
+at 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 and 23:00, and sends each person, one at a time,
+between 8:00 and 22:00, the listings that match their filters (neighborhoods by administrative
+region, maximum rent, minimum bedrooms, property type). At 23:00 a daily summary goes out.
 
-## Configurar
-1. Crie o bot no @BotFather e copie o token.
-2. `cp .env.example .env` e preencha `TELEGRAM_TOKEN`, `MYSQL_PASSWORD` e `MYSQL_ROOT_PASSWORD`.
-3. `cp filtros.yaml.example filtros.yaml` e liste o operador e os `chat_id`s autorizados
-   (formato em `specs/003-entrega-espacada-cadastro-telegram/contracts/configuracao.md`).
-   Seu `chat_id`: mande uma mensagem ao bot e procure `chat_nao_autorizado chat_id=` no log.
-4. Opcional: `ENTREGA_INTERVALO=5-10` no `.env` só para testar a entrega espaçada em segundos
-   (padrão `120-300`).
+## Setup
+1. Create the bot with @BotFather and copy the token.
+2. `cp .env.example .env` and fill in `TELEGRAM_TOKEN`, `MYSQL_PASSWORD` and `MYSQL_ROOT_PASSWORD`.
+3. `cp filtros.yaml.example filtros.yaml` and list the operator and the authorized `chat_id`s
+   (format in `specs/003-entrega-espacada-cadastro-telegram/contracts/configuracao.md`).
+   Your `chat_id`: send a message to the bot and look for `chat_nao_autorizado chat_id=` in the log.
+4. Optional: `ENTREGA_INTERVALO=5-10` in `.env` only to test the spaced-out delivery in seconds
+   (default `120-300`).
 
-## Rodar
+## Run
 ```bash
-docker compose up -d --build      # sobe app, MySQL e Redis (reinício automático)
+docker compose up -d --build      # starts app, MySQL and Redis (automatic restart)
 docker compose logs -f app
-docker compose exec app python -m apebot.main --rodada-agora   # rodada na hora
+docker compose exec app python -m apebot.main --rodada-agora   # run a round right now
 ```
-Cada pessoa manda `/start` e responde o cadastro (nome, tipos, quartos, bairros, valor). Depois,
-muda os filtros sozinha pelo `/filtros` → "Editar filtros". Autorizou alguém novo no
-`filtros.yaml`? `docker compose restart app`.
+Each person sends `/start` and answers the sign-up questions (name, types, bedrooms,
+neighborhoods, price). After that, they change their filters on their own via `/filtros` →
+"Editar filtros" (Edit filters). Authorized someone new in `filtros.yaml`?
+`docker compose restart app`.
 
-Tabela de bairros e regionais (só se o catálogo mudar):
+Neighborhood and region table (only if the catalog changes):
 ```bash
 .venv/bin/python scripts/regionais_pbh.py docs/referencias/pbh-bairros-regionais.pdf > src/apebot/dados/bairros_bh.csv
 ```
 
 ## Railway
-O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre.
+`railway.json` deploys the bot from the `Dockerfile`, with 1 replica and always-restart.
 
-1. No Railway: **New Project → Deploy from GitHub repo** → `ape-bot` (branch com este README).
-2. No mesmo projeto: **+ New → Database → MySQL** e **+ New → Database → Redis**. Confira se
-   os dois têm volume (aba *Volumes*); sem volume, os dados somem a cada reinício.
-3. Variáveis do serviço do bot (**Variables**; segredos digitados por você):
-   | Variável | Valor |
+1. In Railway: **New Project → Deploy from GitHub repo** → `ape-bot` (the branch with this README).
+2. In the same project: **+ New → Database → MySQL** and **+ New → Database → Redis**. Check that
+   both have a volume (*Volumes* tab); without a volume, the data is lost on every restart.
+3. Bot service variables (**Variables**; secrets typed in by you):
+   | Variable | Value |
    |---|---|
-   | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | os do `.env` |
+   | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | the ones from `.env` |
    | `GECKO_FONTES` | `zap,olx` |
-   | `NETIMOVEIS` | `ligado` depois da sonda do passo 6 |
+   | `NETIMOVEIS` | `ligado` (on) after the probe in step 6 |
    | `MYSQL_HOST` / `MYSQL_PORT` | `${{MySQL.MYSQLHOST}}` / `${{MySQL.MYSQLPORT}}` |
    | `MYSQL_DATABASE` | `${{MySQL.MYSQLDATABASE}}` |
    | `MYSQL_USER` / `MYSQL_PASSWORD` | `${{MySQL.MYSQLUSER}}` / `${{MySQL.MYSQLPASSWORD}}` |
    | `REDIS_URL` | `${{Redis.REDIS_URL}}` |
-   | `FILTROS_YAML` | o conteúdo inteiro do `filtros.yaml` (o arquivo não vai para o git) |
-4. **Pare o bot do notebook antes do primeiro deploy** (`docker compose stop app`): dois
-   processos com o mesmo token disputam as mensagens do Telegram.
-5. Depois do deploy, nos logs: `migracoes_aplicadas` e `Application started`. Teste o QuintoAndar
-   a partir do IP do Railway: no serviço do bot, **⋯ → Shell** (ou `railway ssh`) e
-   `python -m apebot.main --rodada-agora`; as 63 páginas precisam passar.
-6. Netimóveis: depois de ler os termos de uso do portal, rode no mesmo shell
-   `python -m apebot.fontes.netimoveis` (uma busca, sem banco nem Telegram). Com `status=200` e
-   `lidos` maior que zero, mude `NETIMOVEIS` para `ligado` (o serviço reinicia sozinho). Com 403,
-   desafio ou timeout, deixe desligado: o robô não contorna bloqueio.
+   | `FILTROS_YAML` | the entire contents of `filtros.yaml` (the file is not committed to git) |
+4. **Stop the bot on the laptop before the first deploy** (`docker compose stop app`): two
+   processes with the same token compete for Telegram messages.
+5. After the deploy, check the logs for `migracoes_aplicadas` and `Application started`. Test
+   QuintoAndar from Railway's IP: in the bot service, **⋯ → Shell** (or `railway ssh`) and
+   `python -m apebot.main --rodada-agora`; all 63 pages must go through.
+6. Netimóveis: after reading the portal's terms of use, run in the same shell
+   `python -m apebot.fontes.netimoveis` (a single search, no database or Telegram). With
+   `status=200` and `lidos` greater than zero, set `NETIMOVEIS` to `ligado` (the service restarts
+   on its own). With a 403, a challenge or a timeout, leave it off: the bot does not bypass blocks.
 
-Levar os dados do notebook (cadastros feitos pelo `/start`, favoritos, envios) é opcional:
-`docker compose exec mysql mysqldump -u root -p apebot > apebot.sql` e importar no MySQL do
-Railway pela URL pública dele (`MYSQL_PUBLIC_URL`), antes de subir o bot.
+Moving the data from the laptop (sign-ups made via `/start`, favorites, deliveries) is optional:
+`docker compose exec mysql mysqldump -u root -p apebot > apebot.sql` and import it into Railway's
+MySQL through its public URL (`MYSQL_PUBLIC_URL`), before starting the bot.
 
-## Testes
+## Tests
 ```bash
-docker compose run --rm app pytest     # ou: .venv/bin/pytest
+docker compose run --rm app pytest     # or: .venv/bin/pytest
 docker compose run --rm app ruff check src tests
 ```
 
-## Documentação
-- Arquitetura: `docs/arquitetura.md` · Constituição: `.specify/memory/constitution.md`
-- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX e comandos), `specs/003-*` (entrega espaçada, cadastro, favoritos e resumo), `specs/004-*` (lembrete de achados) e `specs/005-*` (Netimóveis)
+## Documentation
+- Architecture: `docs/arquitetura.md` · Constitution: `.specify/memory/constitution.md`
+- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX and commands), `specs/003-*` (spaced-out delivery, sign-up, favorites and summary), `specs/004-*` (findings reminder) and `specs/005-*` (Netimóveis)
