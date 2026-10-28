@@ -22,7 +22,7 @@ Robô que coleta anúncios de aluguel em Belo Horizonte, guarda no MySQL e avisa
 | Rodadas às 06, 09, 12, 15, 18, 21 e 23h (America/Sao_Paulo) | Limite diário de imóveis por pessoa |
 | Aviso ao operador em falhas repetidas, por fonte | Nuvem gerenciada (Azure) |
 | Zap e OLX via GeckoAPI (1 chamada por portal por rodada; `GECKO_FONTES=zap,olx`) | VivaReal (excluído: `notFound` e cobra crédito) |
-| **005:** Netimóveis (coletor próprio, só a 1ª página de cada busca bairro × tipo; `NETIMOVEIS`, padrão desligado; `docs/spikes/002-netimoveis.md`) | Sitemap diário e página de detalhe do Netimóveis (IPTU) |
+| **005:** Netimóveis (coletor próprio, só a 1ª página de cada busca bairro × tipo; `NETIMOVEIS`, padrão desligado; **desligado no Railway: HTTP 403 para IP de datacenter**; `docs/spikes/002-netimoveis.md`) | Sitemap diário e página de detalhe do Netimóveis (IPTU) |
 | Mensagem com portal, botões "Abrir anúncio" e "WhatsApp" e contato do anunciante em trânsito | |
 | Comandos `/ajuda`, `/filtros`, `/status`, `/pausar`, `/retomar` e menu do bot | |
 | **003:** entrega espaçada, um imóvel por mensagem a cada 2–5 min (sorteado), só das 8h às 22h, mais baratos primeiro; sai o resumo em lista | |
@@ -125,6 +125,6 @@ Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet), **f
 1. OLX: resolvido em 28/10/2026. O suporte da GeckoAPI confirmou que `region` (e a URL `belo-horizonte-e-regiao/...`) fazia a OLX ignorar a cidade; com só `state: MG` + `city: Belo Horizonte`, 1 chamada de teste trouxe 50 itens, todos de BH (46 aproveitados). URL equivalente: `https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte?sf=1`.
 2. Ler os termos de uso do QuintoAndar.
 3. Onde roda: Railway desde 28/10/2026 (`railway.json`, 1 réplica, MySQL e Redis do Railway); o Docker Compose segue para rodar local.
-6. Netimóveis: ler os termos de uso e rodar a sonda a partir do IP do Railway antes de `NETIMOVEIS=ligado`.
+6. Netimóveis: a sonda no Railway (28/10/2026) deu **HTTP 403** (bloqueio do IP do datacenter); fica desligado em produção, sem contorno. Pedido de autorização ao portal enviado/pendente; se liberarem, `NETIMOVEIS=ligado`.
 4. GeckoAPI (teste no Playground em 27/10/2026, 6 créditos): VivaReal devolveu `notFound` para aluguel em BH; Zap funciona (22.060 imóveis, 30 por página), mas não ordena por data nem informa data de publicação, e traz `advertiser` com telefones; OLX ordena por data (`listedAt`), mas ignorou a localização, por campos e por URL, e devolveu 50 itens de fora de MG. Nenhum portal atende ainda ao modelo "1 chamada por rodada". As duas respostas estão em `resposta_fonte`; fixtures cortadas em `tests/fixtures/geckoapi/`. Próximo passo: chamado no suporte da GeckoAPI sobre OLX/VivaReal antes de comprar o refil.
 5. Tabela bairro → regional (003): feita. 240 dos 289 bairros do catálogo bateram direto com o PDF da PBH; 22 por apelido ou sufixo; 6 de fora de BH saíram; 21 ficaram em "Outros" (lista em `src/apebot/dados/bairros_bh.csv`). Se algum deles ganhar regional, ajustar `scripts/regionais_pbh.py` e gerar de novo.
