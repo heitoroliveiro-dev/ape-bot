@@ -63,6 +63,12 @@ def _preparar_banco(segredos: Segredos, config: Configuracao) -> Banco:
 async def _rodada_agora(
     banco: Banco, segredos: Segredos, config: Configuracao, simular_falha: bool
 ) -> None:
+    if not await asyncio.to_thread(banco.pessoas_registradas):
+        print(
+            "Nenhuma pessoa registrada. Mande /start ao bot com ele no ar e rode de novo.",
+            flush=True,
+        )
+        return
     fila = Fila(segredos.redis_url)
     try:
         status = await Rodada(banco, fila, config, simular_falha).executar()

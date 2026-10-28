@@ -65,6 +65,8 @@ class Rodada:
     async def _coletar_e_enfileirar(self, contagens: Counter[str]) -> tuple[str, str | None]:
         registradas = await asyncio.to_thread(self._banco.pessoas_registradas)
         pessoas = [p for p in self._config.pessoas if p.chat_id in registradas]
+        if not pessoas:
+            log.warning("rodada_sem_pessoas_registradas: peça /start ao bot")
         paginas = await buscar_paginas(combinacoes(pessoas), self._simular_falha)
 
         anuncios = [a for pagina in paginas for a in pagina.anuncios]

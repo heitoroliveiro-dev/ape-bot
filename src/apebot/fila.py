@@ -6,6 +6,9 @@ from dataclasses import asdict, dataclass, field
 import redis.asyncio as redis
 
 CHAVE_FILA = "apebot:envios"
+TIMEOUT_CONSUMO_SEGUNDOS = 5
+# Precisa ser maior que a espera do BLPOP; senão o cliente desiste antes do servidor responder.
+SOCKET_TIMEOUT_SEGUNDOS = 15
 
 
 @dataclass
@@ -28,7 +31,9 @@ class Mensagem:
 
 class Fila:
     def __init__(self, url: str) -> None:
-        self._redis = redis.from_url(url)
+        self._redis = redis.from_url(
+            url, socket_timeout=SOCKET_TIMEOUT_SEGUNDOS, health_check_interval=30
+        )
 
     async def enfileirar(self, mensagem: Mensagem) -> None:
         await self._redis.rpush(CHAVE_FILA, mensagem.para_json())
@@ -36,7 +41,7 @@ class Fila:
     async def enfileirar_no_inicio(self, mensagem: Mensagem) -> None:
         await self._redis.lpush(CHAVE_FILA, mensagem.para_json())
 
-    async def consumir(self, timeout: int = 5) -> Mensagem | None:
+    async def consumir(self, timeout: int = TIMEOUT_CONSUMO_SEGUNDOS) -> Mensagem | None:
         item = await self._redis.blpop([CHAVE_FILA], timeout=timeout)
         return Mensagem.de_json(item[1]) if item else None
 

@@ -5,6 +5,7 @@ import logging
 import time
 from datetime import timedelta
 
+import redis.exceptions
 from telegram import LinkPreviewOptions, Update
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, RetryAfter, TelegramError
@@ -41,6 +42,13 @@ def registrar_handlers(app: Application, config: Configuracao, banco: Banco) -> 
         if chat is None or chat.id not in autorizados:
             log.info("chat_nao_autorizado chat_id=%s", chat.id if chat else None)
             raise ApplicationHandlerStop
+        mensagem = update.effective_message
+        texto = mensagem.text if mensagem and mensagem.text else ""
+        log.info(
+            "update_recebido chat_id=%s texto=%s",
+            chat.id,
+            texto.split()[0] if texto.startswith("/") else "mensagem",
+        )
 
     async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
@@ -91,11 +99,14 @@ class Entregador:
         await self.reenfileirar_pendentes()
         while True:
             try:
-                mensagem = await self._fila.consumir(timeout=5)
+                mensagem = await self._fila.consumir()
                 if mensagem is not None:
                     await self._entregar(mensagem)
             except asyncio.CancelledError:
                 raise
+            except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError) as erro:
+                log.warning("fila_indisponivel erro=%s", erro)
+                await asyncio.sleep(5)
             except Exception:
                 log.exception("entregador_erro")
                 await asyncio.sleep(5)

@@ -26,6 +26,11 @@ docker compose logs -f app
 Esperado no log: migrações aplicadas, filtros validados, 7 rodadas agendadas (horário de Brasília).
 
 ## Cenários de aceite
+
+> Mande `/start` **com o bot no ar** (depois do `docker compose up`) — o cenário 1 vem antes do 3.
+> Os logs do `--rodada-agora` saem no terminal onde o comando roda, não em `docker compose logs`.
+> Sem ninguém registrado, o `--rodada-agora` avisa e encerra sem rodar.
+
 | # | Ação | Esperado | Spec |
 |---|---|---|---|
 | 1 | `/start` do seu chat | Confirmação + filtros | US2, FR-002 |
