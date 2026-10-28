@@ -82,11 +82,11 @@ class FilaPessoaFalsa:
         self.itens: dict[int, dict] = {}
         self.proximos: dict[int, float] = {}
 
-    async def adicionar(self, chat_id, anuncio, contato=None):
+    async def adicionar(self, chat_id, anuncio, contato=None, lembrete=False):
         fila = self.itens.setdefault(chat_id, {})
         if anuncio.chave in fila:
             return False
-        fila[anuncio.chave] = (anuncio, contato)
+        fila[anuncio.chave] = (anuncio, contato, lembrete)
         return True
 
     async def retirar_mais_barato(self, chat_id):
@@ -119,10 +119,14 @@ class FilaFalsa:
 
 
 class BancoFalso:
-    def __init__(self, pessoas, pendentes=None):
+    def __init__(self, pessoas, pendentes=None, favoritos=()):
         self.pessoas = pessoas
         self.pendentes = pendentes or {}
         self.apagados = []
+        self.favoritos = set(favoritos)
+
+    def e_favorito(self, chat_id, chave):
+        return (chat_id, *chave) in self.favoritos
 
     def pessoas_ativas(self, autorizados):
         return [p for p in self.pessoas if p.chat_id in autorizados]
@@ -142,9 +146,9 @@ def _despachante(pessoas, fila_pessoa, fila=None, banco=None, intervalo=(120, 30
     return despachante, fila, banco
 
 
-def _encher(fila_pessoa, chat_id, *anuncios, contato=None):
+def _encher(fila_pessoa, chat_id, *anuncios, contato=None, lembrete=False):
     for anuncio in anuncios:
-        asyncio.run(fila_pessoa.adicionar(chat_id, anuncio, contato))
+        asyncio.run(fila_pessoa.adicionar(chat_id, anuncio, contato, lembrete))
 
 
 def test_fora_da_janela_nao_despacha():
@@ -237,3 +241,30 @@ def test_reconciliar_recoloca_so_o_que_sumiu():
     asyncio.run(despachante.reconciliar())
     assert set(fila_pessoa.itens[1]) == {na_fila.chave, sumido.chave}
     assert fila_pessoa.itens[1][sumido.chave][1] is None  # do banco: sem contato
+
+
+def test_lembrete_sai_com_texto_de_achado():
+    fila_pessoa = FilaPessoaFalsa()
+    _encher(fila_pessoa, 1, _anuncio("a", 200_000), lembrete=True)
+    despachante, fila, banco = _despachante([ANA], fila_pessoa)
+    asyncio.run(despachante.uma_volta(_sp(10)))
+    (mensagem,) = fila.mensagens
+    assert mensagem.tipo == "lembrete"
+    assert mensagem.texto.startswith("Esse imóvel já tinha sido encontrado")
+    assert all(b["t"] != "WhatsApp" for linha in mensagem.botoes for b in linha)
+    assert banco.apagados == []
+
+
+def test_lembrete_que_deixou_de_ser_achado_ou_foi_favoritado_e_descartado():
+    acima = _anuncio("acima", 200_000)  # 80% de 250.000
+    favoritado = _anuncio("fav", 150_000)
+    ok = _anuncio("ok", 170_000)
+    fila_pessoa = FilaPessoaFalsa()
+    _encher(fila_pessoa, 1, acima, favoritado, ok, lembrete=True)
+    baixou = replace(ANA, filtro=replace(FILTRO, aluguel_max_centavos=250_000))
+    banco = BancoFalso([baixou], favoritos={(1, *favoritado.chave)})
+    despachante, fila, _ = _despachante([baixou], fila_pessoa, banco=banco)
+    asyncio.run(despachante.uma_volta(_sp(10)))
+    assert [m.anuncio_ids for m in fila.mensagens] == [[ok.chave]]
+    assert fila_pessoa.itens[1] == {acima.chave: (acima, None, True)}  # ainda não chegou a vez
+    assert banco.apagados == []

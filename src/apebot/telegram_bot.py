@@ -34,7 +34,7 @@ from apebot.cadastro import (
 )
 from apebot.config import Configuracao
 from apebot.fila import Fila, FilaPessoa, Mensagem
-from apebot.filtro import aceita
+from apebot.filtro import aceita, e_achado
 from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.mensagens import (
     CADASTRO_ABERTO,
@@ -44,6 +44,7 @@ from apebot.mensagens import (
     botoes_imovel,
     filtros_salvos,
     mensagem_imovel,
+    mensagem_lembrete,
     proxima_rodada,
     resposta_padrao,
     texto_ajuda,
@@ -384,20 +385,32 @@ class Despachante:
         if proximo is not None and agora.timestamp() < proximo:
             return
         while (item := await self._fila_pessoa.retirar_mais_barato(chat_id)) is not None:
-            anuncio, contato = item
-            if not aceita(pessoa.filtro, anuncio):  # filtros mudaram depois que entrou (FR-006)
+            anuncio, contato, lembrete = item
+            if lembrete:
+                favorito = await asyncio.to_thread(self._banco.e_favorito, chat_id, anuncio.chave)
+                if favorito or not e_achado(pessoa.filtro, anuncio):  # spec 004, FR-003
+                    log.info("lembrete_descartado chat_id=%s", chat_id)
+                    continue
+                mensagem = Mensagem(
+                    chat_id=chat_id,
+                    tipo="lembrete",
+                    texto=mensagem_lembrete(anuncio),
+                    anuncio_ids=[anuncio.chave],
+                    botoes=botoes_imovel(anuncio),
+                )
+            elif not aceita(pessoa.filtro, anuncio):  # filtros mudaram depois que entrou
                 await asyncio.to_thread(self._banco.apagar_pendente, chat_id, anuncio.chave)
                 log.info("imovel_descartado_filtro chat_id=%s", chat_id)
                 continue
-            await self._fila.enfileirar(
-                Mensagem(
+            else:
+                mensagem = Mensagem(
                     chat_id=chat_id,
                     tipo="imovel",
                     texto=mensagem_imovel(anuncio, contato),
                     anuncio_ids=[anuncio.chave],
                     botoes=botoes_imovel(anuncio, contato),
                 )
-            )
+            await self._fila.enfileirar(mensagem)
             espera = sortear_intervalo(self._intervalo, self._aleatorio)
             await self._fila_pessoa.marcar_proximo(chat_id, agora.timestamp() + espera)
             log.info("imovel_despachado chat_id=%s proximo_em=%ds", chat_id, espera)
@@ -497,5 +510,9 @@ class Entregador:
         )
 
     async def _marcar(self, m: Mensagem, status: str) -> None:
-        if m.anuncio_ids:
-            await asyncio.to_thread(self._banco.marcar_envio, m.chat_id, m.anuncio_ids, status)
+        if not m.anuncio_ids:
+            return
+        if m.tipo == "lembrete":  # entregue ou falhou de vez: não relembra de novo (spec 004)
+            await asyncio.to_thread(self._banco.marcar_lembrado, m.chat_id, m.anuncio_ids)
+            return
+        await asyncio.to_thread(self._banco.marcar_envio, m.chat_id, m.anuncio_ids, status)

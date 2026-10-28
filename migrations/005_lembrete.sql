@@ -1,0 +1,1 @@
+ALTER TABLE envio ADD COLUMN lembrado_em DATETIME NULL;

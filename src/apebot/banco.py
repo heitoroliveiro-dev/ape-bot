@@ -325,6 +325,49 @@ class Banco:
         with self._cursor() as c:
             c.execute("DELETE FROM envio WHERE chat_id = %s AND status = 'pendente'", (chat_id,))
 
+    # lembrete de achados (004) ----------------------------------------------------------
+
+    def achados_para(self, chat_id: int, limite_centavos: int) -> list[Anuncio]:
+        """Entregues há 32 h ou mais, nunca relembrados, vistos nas últimas 24 h, fora dos
+        favoritos e com aluguel até o limite (research R1 da 004)."""
+        momento = agora()
+        with self._cursor() as c:
+            c.execute(
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                " FROM envio e JOIN anuncio a USING (fonte, id_externo)"
+                " LEFT JOIN favorito f ON f.chat_id = e.chat_id AND f.fonte = e.fonte"
+                " AND f.id_externo = e.id_externo"
+                " WHERE e.chat_id = %s AND e.status = 'entregue' AND e.lembrado_em IS NULL"
+                " AND e.entregue_em <= %s AND a.ultimo_visto_em >= %s"
+                " AND a.aluguel_centavos <= %s AND f.chat_id IS NULL",
+                (
+                    chat_id,
+                    momento - timedelta(hours=32),
+                    momento - timedelta(hours=24),
+                    limite_centavos,
+                ),
+            )
+            return [_anuncio(linha) for linha in c.fetchall()]
+
+    def marcar_lembrado(self, chat_id: int, chaves: Iterable[Chave]) -> None:
+        momento = agora()
+        with self._cursor() as c:
+            for fonte, id_externo in chaves:
+                c.execute(
+                    "UPDATE envio SET lembrado_em = %s"
+                    " WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                    (momento, chat_id, fonte, id_externo),
+                )
+
+    def e_favorito(self, chat_id: int, chave: Chave) -> bool:
+        with self._cursor() as c:
+            c.execute(
+                "SELECT 1 FROM favorito WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                (chat_id, *chave),
+            )
+            return c.fetchone() is not None
+
     # favoritos ----------------------------------------------------------------------------
 
     def alternar_favorito(self, chat_id: int, chave: Chave) -> bool:

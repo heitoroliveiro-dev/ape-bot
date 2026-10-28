@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from apebot.banco import Banco, agora
 from apebot.config import Configuracao
 from apebot.fila import Fila, FilaPessoa, Mensagem
-from apebot.filtro import novos_para
+from apebot.filtro import e_achado, limite_achado, novos_para
 from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.fontes.resultado import ResultadoFonte, status_rodada
 from apebot.mensagens import aviso_falha, aviso_recuperacao, proxima_rodada, texto_resumo
@@ -173,6 +173,7 @@ class Rodada:
 
         for pessoa in pessoas:
             contagens["enfileirados"] += await self._enfileirar_para(pessoa, anuncios)
+            await self._enfileirar_achados(pessoa)
         erros = [f"{r.fonte}: {r.erro}" for r in resultados if r.erro]
         return status, (erros[-1] if erros else None)
 
@@ -193,6 +194,20 @@ class Rodada:
         if novos:
             log.info("imovel_enfileirado chat_id=%s quantidade=%d", pessoa.chat_id, len(novos))
         return len(novos)
+
+    async def _enfileirar_achados(self, pessoa: Pessoa) -> None:
+        """Lembrete de achado: imóveis já entregues, até 70% do máximo (spec 004)."""
+        candidatos = await asyncio.to_thread(
+            self._banco.achados_para, pessoa.chat_id, limite_achado(pessoa.filtro)
+        )
+        quantidade = 0
+        for anuncio in candidatos:
+            if e_achado(pessoa.filtro, anuncio):  # os filtros atuais, não os da época
+                quantidade += await self._fila_pessoa.adicionar(
+                    pessoa.chat_id, anuncio, lembrete=True
+                )
+        if quantidade:
+            log.info("lembrete_enfileirado chat_id=%s quantidade=%d", pessoa.chat_id, quantidade)
 
     async def _avaliar_alerta(self, resultado: ResultadoFonte) -> None:
         fonte = resultado.fonte

@@ -1,7 +1,7 @@
 import asyncio
 import json
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -10,7 +10,7 @@ import pytest
 from apebot.config import Configuracao, bairros_validos
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.fontes.zap import extrair_zap
-from apebot.modelos import FUSO, Filtro, Pessoa, Tipo
+from apebot.modelos import FUSO, Anuncio, Filtro, Pessoa, Tipo
 from apebot.rodada import (
     Coletor,
     Rodada,
@@ -123,6 +123,12 @@ class BancoFalso:
     def ja_enviados(self, chat_id):
         return set(self.envios)
 
+    achados = ()
+
+    def achados_para(self, chat_id, limite_centavos):
+        self.limite_pedido = limite_centavos
+        return list(self.achados)
+
     def criar_envios_pendentes(self, chat_id, chaves):
         novas = [c for c in chaves if c not in self.envios]
         self.envios.update(novas)
@@ -171,7 +177,7 @@ def test_rodada_coloca_cada_imovel_na_fila_da_pessoa_com_contato():
     assert [m for m in fila.mensagens if m.tipo in ("imovel", "resumo")] == []  # nada em bloco
     na_fila = fila_pessoa.itens[PESSOA.chat_id]
     assert len(na_fila) == 3  # Gutierrez, Funcionários (casa) e Buritis
-    contatos = [c for _, c in na_fila.values() if c is not None]
+    contatos = [c for _, c, _ in na_fila.values() if c is not None]
     assert any(c.nome == "Imobiliária Fictícia" for c in contatos)
     gravado = json.dumps(banco.gravado, ensure_ascii=False, default=str)
     assert "Imobiliária Fictícia" not in gravado and "3100000000" not in gravado
@@ -282,3 +288,27 @@ def test_resumo_so_uma_vez_por_dia_e_so_para_ativas():
 def test_resumo_sem_geckoapi_omite_creditos():
     (mensagem,) = _resumos(BancoResumo([PESSOA]), None)
     assert "💳" not in mensagem.texto
+
+
+# --- lembrete de achados (004) ---
+
+
+def test_rodada_enfileira_achados_ainda_aceitos_como_lembrete():
+    base = Anuncio(
+        fonte="quintoandar",
+        id_externo="a1",
+        tipo=Tipo.APARTAMENTO,
+        bairro="Buritis",
+        bairro_slug="buritis",
+        quartos=2,
+        area_m2=None,
+        aluguel_centavos=600_000,
+        total_centavos=None,
+        url="https://x/a1",
+    )
+    fora_do_bairro = replace(base, id_externo="a2", bairro_slug="sion")
+    banco = BancoFalso()
+    banco.achados = [base, fora_do_bairro]
+    _, _, _, fila_pessoa = _rodar([Coletor("quintoandar", _quintoandar_vazio)], banco=banco)
+    assert banco.limite_pedido == 840_000  # 70% de R$ 12.000
+    assert fila_pessoa.itens[PESSOA.chat_id] == {base.chave: (base, None, True)}

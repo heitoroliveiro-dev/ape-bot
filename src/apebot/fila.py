@@ -73,19 +73,23 @@ def _membro(chave: tuple[str, str]) -> str:
     return f"{chave[0]}|{chave[1]}"
 
 
-def _imovel_json(anuncio: Anuncio, contato: Contato | None) -> str:
+def _imovel_json(anuncio: Anuncio, contato: Contato | None, lembrete: bool) -> str:
     dados = {
         "anuncio": asdict(anuncio) | {"tipo": anuncio.tipo.value},
         "contato": asdict(contato) if contato else None,
+        "lembrete": lembrete,
     }
     return json.dumps(dados, ensure_ascii=False)
 
 
-def _imovel_de_json(bruto: str | bytes) -> tuple[Anuncio, Contato | None]:
+ImovelNaFila = tuple[Anuncio, Contato | None, bool]  # anúncio, contato em trânsito, é lembrete
+
+
+def _imovel_de_json(bruto: str | bytes) -> ImovelNaFila:
     dados = json.loads(bruto)
     anuncio = Anuncio(**(dados["anuncio"] | {"tipo": Tipo(dados["anuncio"]["tipo"])}))
     contato = Contato(**dados["contato"]) if dados.get("contato") else None
-    return anuncio, contato
+    return anuncio, contato, bool(dados.get("lembrete"))
 
 
 class FilaPessoa:
@@ -100,14 +104,18 @@ class FilaPessoa:
         return f"{base}:fila", f"{base}:imoveis", f"{base}:proximo"
 
     async def adicionar(
-        self, chat_id: int, anuncio: Anuncio, contato: Contato | None = None
+        self,
+        chat_id: int,
+        anuncio: Anuncio,
+        contato: Contato | None = None,
+        lembrete: bool = False,
     ) -> bool:
         fila, imoveis, _ = self._chaves(chat_id)
         membro = _membro(anuncio.chave)
-        await self._redis.hsetnx(imoveis, membro, _imovel_json(anuncio, contato))
+        await self._redis.hsetnx(imoveis, membro, _imovel_json(anuncio, contato, lembrete))
         return bool(await self._redis.zadd(fila, {membro: anuncio.aluguel_centavos}, nx=True))
 
-    async def retirar_mais_barato(self, chat_id: int) -> tuple[Anuncio, Contato | None] | None:
+    async def retirar_mais_barato(self, chat_id: int) -> ImovelNaFila | None:
         fila, imoveis, _ = self._chaves(chat_id)
         while retirado := await self._redis.zpopmin(fila):
             membro = retirado[0][0]

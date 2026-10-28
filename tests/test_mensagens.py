@@ -13,6 +13,7 @@ from apebot.mensagens import (
     botoes_imovel,
     formatar_reais,
     mensagem_imovel,
+    mensagem_lembrete,
     proxima_rodada,
     resposta_padrao,
     texto_ajuda,
@@ -328,3 +329,12 @@ def test_trocar_botao_favorito():
     assert salvo[0] == linhas[0]  # Abrir anúncio e WhatsApp continuam
     assert salvo[1] == [{"t": "✅ Favorito · toque para remover", "c": "f:zap:2919519749"}]
     assert trocar_botao_favorito(salvo, salvo=False) == linhas
+
+
+def test_mensagem_lembrete():
+    assert mensagem_lembrete(ANUNCIO) == (
+        "Esse imóvel já tinha sido encontrado, você chegou a dar uma olhada? É um achado!!\n"
+        "2 quartos no bairro Buritis\n"
+        "💰Valor: R$ 2.700,00\n"
+        "Link: https://www.quintoandar.com.br/imovel/1"
+    )

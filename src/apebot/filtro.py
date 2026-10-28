@@ -8,6 +8,7 @@ Chave = tuple[str, str]
 VALOR_MIN_CENTAVOS = 30_000
 VALOR_MAX_CENTAVOS = 5_000_000
 QUARTOS_OPCOES = (0, 1, 2, 3, 4)
+PERCENTUAL_ACHADO = 70  # lembrete de achado (spec 004)
 
 
 def aceita(filtro: Filtro, anuncio: Anuncio) -> bool:
@@ -17,6 +18,15 @@ def aceita(filtro: Filtro, anuncio: Anuncio) -> bool:
         and anuncio.quartos >= filtro.quartos_min
         and anuncio.aluguel_centavos <= filtro.aluguel_max_centavos
     )
+
+
+def limite_achado(filtro: Filtro) -> int:
+    """Até quanto um imóvel é "achado": 70% do máximo, arredondado para baixo em centavos."""
+    return filtro.aluguel_max_centavos * PERCENTUAL_ACHADO // 100
+
+
+def e_achado(filtro: Filtro, anuncio: Anuncio) -> bool:
+    return aceita(filtro, anuncio) and anuncio.aluguel_centavos <= limite_achado(filtro)
 
 
 def novos_para(

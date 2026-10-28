@@ -4,9 +4,11 @@ import pytest
 
 from apebot.filtro import (
     aceita,
+    e_achado,
     filtro_de_json,
     filtro_para_json,
     filtros_somados,
+    limite_achado,
     novos_para,
 )
 from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
@@ -141,3 +143,15 @@ def test_filtros_somados():
 
 def test_filtros_somados_sem_pessoas():
     assert filtros_somados([]) is None
+
+
+def test_limite_achado_e_70_por_cento_arredondado_para_baixo():
+    assert limite_achado(FILTRO) == 210_000
+    assert limite_achado(replace(FILTRO, aluguel_max_centavos=333_333)) == 233_333
+
+
+def test_e_achado():
+    assert e_achado(FILTRO, replace(ANUNCIO, aluguel_centavos=210_000))
+    assert not e_achado(FILTRO, replace(ANUNCIO, aluguel_centavos=210_001))
+    fora_do_bairro = replace(ANUNCIO, aluguel_centavos=150_000, bairro_slug="sion")
+    assert not e_achado(FILTRO, fora_do_bairro)

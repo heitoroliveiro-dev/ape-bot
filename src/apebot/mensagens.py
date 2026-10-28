@@ -200,6 +200,15 @@ def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
     return "\n".join(linhas)
 
 
+TEXTO_ACHADO = "Esse imóvel já tinha sido encontrado, você chegou a dar uma olhada? É um achado!!"
+
+
+def mensagem_lembrete(anuncio: Anuncio) -> str:
+    """Lembrete de achado (spec 004): sem contato, que não existe mais nessa hora."""
+    _, *resto = mensagem_imovel(anuncio).split("\n")
+    return "\n".join([TEXTO_ACHADO, *resto])
+
+
 SALVAR_FAVORITO = "⭐ Salvar como favorito"
 FAVORITO_SALVO = "✅ Favorito · toque para remover"
 

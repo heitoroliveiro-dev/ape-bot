@@ -1,8 +1,9 @@
 # ape-bot — Arquitetura (enxuta)
 
-> Versão 1.3 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
+> Versão 1.4 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > 1.1: reflete a feature `001-mvp-quintoandar-telegram` implementada (spec/plan em `specs/001-*`).
 > 1.2: feature `002-geckoapi-zap-olx-telegram` (Zap via GeckoAPI, OLX pronta e desligada, comandos no Telegram).
+> 1.4: feature `004-lembrete-achados` (lembrete único de imóvel barato depois de 32 h).
 > 1.3: feature `003-entrega-espacada-cadastro-telegram` (entrega espaçada, cadastro e edição de filtros pelo Telegram, regionais, favoritos e resumo das 23h); justificativa do escopo em 2.1.
 > Substitui a v0.4 (arquivada em `docs/historico/arquitetura-v0.4-completa.md`). Foco: projeto rápido.
 
@@ -25,6 +26,7 @@ Robô que coleta anúncios de aluguel em Belo Horizonte, guarda no MySQL e avisa
 | **003:** resumo diário às 23h, com recebidos por portal e créditos da GeckoAPI | |
 | **003:** cadastro pelo `/start` e edição pelo `/filtros`, com botões; bairros escolhidos por regional da PBH | |
 | **003:** favoritos (botão na mensagem e `/favoritos`) | |
+| **004:** lembrete de achado: imóvel entregue há 32 h ou mais, até 70% do máximo da pessoa, ainda visto nas últimas 24 h e fora dos favoritos, volta uma única vez | |
 
 ### 2.1 Por que a 003 traz itens que estavam "para depois"
 
@@ -63,6 +65,7 @@ flowchart LR
 
 - **Telegram não envia por número de telefone.** Cada pessoa abre o bot e manda `/start` uma vez. O `filtros.yaml` só diz quais `chat_id`s são autorizados (e, para quem ainda não tem cadastro, filtros iniciais). Os filtros ficam no MySQL: a pessoa se cadastra pelo `/start` (nome, tipos, quartos, bairros por regional, valor máximo) e muda pelo botão "Editar filtros" do `/filtros`; vale a partir da rodada seguinte. A conversa é uma máquina de estados pura (`cadastro.py`) com o estado na tabela `conversa`, então sobrevive a reinício.
 - **Duas filas no Redis:** a rodada põe cada imóvel novo na fila **da pessoa** (ZSET pelo aluguel + HASH com o imóvel e o contato do anunciante). O **despachante** acorda a cada 20 s e, das 8h às 22h, tira o mais barato de cada pessoa cujo intervalo sorteado (2–5 min, `ENTREGA_INTERVALO`) já passou, confere de novo o filtro atual e passa para a **fila de entrega**, onde o entregador controla o ritmo do Telegram e tenta de novo em falha. Na subida, uma reconciliação recoloca os `envio` pendentes que não estão em nenhuma das filas (sem contato). Não existe mais resumo em lista.
+- **Lembrete de achados (004):** a cada rodada, depois dos imóveis novos, os já entregues há 32 h ou mais com aluguel até 70% do máximo da pessoa, nunca relembrados, vistos nas últimas 24 h e fora dos favoritos voltam para a fila da pessoa marcados como lembrete. O despachante reconfere e manda com "É um achado!!"; o entregador grava `envio.lembrado_em` (entregue ou falhou de vez), então cada imóvel é relembrado no máximo uma vez e não conta no resumo.
 - **Regionais:** os 283 bairros do catálogo (`dados/bairros_bh.csv`: slug do QuintoAndar, nome oficial e regional) vêm do PDF da PBH em `docs/referencias/`, por `scripts/regionais_pbh.py`, rodado uma vez.
 - **Coleta:** uma requisição por combinação bairro × tipo dos filtros, na URL pública `/alugar/imovel/{bairro}-belo-horizonte-mg-brasil/{tipo}`; dados do JSON `__NEXT_DATA__`; anúncios de bairros vizinhos que o portal mistura na página são descartados.
 - **Sleep:** 2 a 5 s aleatórios entre requisições ao mesmo portal, e backoff em 429/5xx. Sem seguir redirects.
