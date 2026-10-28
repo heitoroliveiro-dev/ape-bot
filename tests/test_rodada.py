@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from apebot.config import Configuracao, bairros_validos
+from apebot.fontes.netimoveis import extrair as extrair_netimoveis
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.fontes.zap import extrair_zap
 from apebot.modelos import FUSO, Anuncio, Filtro, Pessoa, Tipo
@@ -225,6 +226,45 @@ def test_sem_credito_avisa_o_operador_na_hora():
     operador = [m for m in fila.mensagens if m.tipo == "operador"]
     assert [m.texto for m in operador] == ["💳 sem crédito"]
     assert Counter(s for _, s in banco.fontes) == {"ok": 1, "sem_credito": 1}
+
+
+NETIMOVEIS_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "netimoveis" / "funcionarios-apartamento-2q.html"
+)
+
+
+async def _netimoveis_da_fixture(pessoas):
+    busca = extrair_netimoveis(NETIMOVEIS_FIXTURE.read_text(encoding="utf-8"), bairros_validos())
+    return ResultadoFonte(fonte="netimoveis", anuncios=busca.anuncios, consultas=1)
+
+
+async def _netimoveis_falhou(pessoas):
+    return ResultadoFonte(
+        fonte="netimoveis", status="falha", consultas=4, consultas_erro=4, erro="acesso: HTTP 403"
+    )
+
+
+def test_imoveis_do_netimoveis_entram_na_fila():
+    status, banco, _, fila_pessoa = _rodar(
+        [Coletor("quintoandar", _quintoandar_vazio), Coletor("netimoveis", _netimoveis_da_fixture)]
+    )
+    assert status == "ok"
+    assert banco.fontes == [("quintoandar", "ok"), ("netimoveis", "ok")]
+    na_fila = fila_pessoa.itens[PESSOA.chat_id]
+    assert na_fila and all(chave[0] == "netimoveis" for chave in na_fila)
+
+
+def test_falha_do_netimoveis_nao_muda_a_rodada():
+    status, banco, _, fila_pessoa = _rodar(
+        [
+            Coletor("quintoandar", _quintoandar_vazio),
+            Coletor("zap", _zap_da_fixture),
+            Coletor("netimoveis", _netimoveis_falhou),
+        ]
+    )
+    assert status == "ok"
+    assert banco.fontes == [("quintoandar", "ok"), ("zap", "ok"), ("netimoveis", "falha")]
+    assert len(fila_pessoa.itens[PESSOA.chat_id]) == 3  # os do Zap seguem
 
 
 # --- resumo diário (US4) ---

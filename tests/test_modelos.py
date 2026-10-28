@@ -62,5 +62,41 @@ def test_property_types_do_zap():
     assert Tipo.KITNET.zap_property_types == ("kitnet", "flat")
 
 
+@pytest.mark.parametrize(
+    ("tipo_portal", "esperado"),
+    [
+        ("apartamento", Tipo.APARTAMENTO),
+        ("cobertura", Tipo.APARTAMENTO),
+        ("area-privativa", Tipo.APARTAMENTO),
+        ("andar-pilotis", Tipo.APARTAMENTO),
+        ("casa", Tipo.CASA),
+        ("casa-geminada", Tipo.CASA),
+        ("sobrado", Tipo.CASA),
+        ("duplex", Tipo.CASA),
+        ("casa-em-condominio", Tipo.CASA_CONDOMINIO),
+        ("kitchenette", Tipo.KITNET),
+        ("studio", Tipo.KITNET),
+        ("flat", Tipo.KITNET),
+        ("loft", Tipo.KITNET),
+        ("loja", None),
+        ("sala", None),
+    ],
+)
+def test_tipo_do_netimoveis(tipo_portal, esperado):
+    assert Tipo.de_netimoveis(tipo_portal) is esperado
+
+
+def test_slug_de_busca_do_netimoveis():
+    assert Tipo.APARTAMENTO.slug_netimoveis == "apartamento"
+    assert Tipo.CASA.slug_netimoveis == "casa"
+    assert Tipo.CASA_CONDOMINIO.slug_netimoveis == "casa-em-condominio"
+    assert Tipo.KITNET.slug_netimoveis == "kitchenette"
+
+
 def test_nomes_de_fonte():
-    assert NOMES_FONTE == {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX"}
+    assert NOMES_FONTE == {
+        "quintoandar": "QuintoAndar",
+        "zap": "Zap",
+        "olx": "OLX",
+        "netimoveis": "Netimóveis",
+    }

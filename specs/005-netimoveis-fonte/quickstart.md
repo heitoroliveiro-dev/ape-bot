@@ -35,3 +35,12 @@ Pré-requisito: termos de uso do Netimóveis lidos e sonda do passo 3 ok.
 ## 5. Desligar sem deploy
 `NETIMOVEIS=desligado` no Railway → próxima rodada sem `fonte=netimoveis` acessando a rede;
 `rodada_fonte` com `desligada`; `/status` com `⏹️ desligado`.
+
+## Resultado da validação (28/10/2026)
+- **1. Testes**: `pytest` 369 passando (20 em `tests/test_netimoveis.py`); `ruff check` e `ruff format --check` limpos.
+- **2. Sonda local** (IP residencial, 2 requisições):
+  - `python -m apebot.fontes.netimoveis` → `status=200 total=39 lidos=21 anuncios=21 descartados={}` e
+    `netimoveis_corte bairro=centro tipo=apartamento total=39 lidos=21`.
+  - `python -m apebot.fontes.netimoveis funcionarios apartamento` → `status=200 total=43 lidos=21 anuncios=21`.
+- **3. Sonda no Railway** e **leitura dos termos de uso**: pendentes (dono). `NETIMOVEIS` segue `desligado`
+  até lá.

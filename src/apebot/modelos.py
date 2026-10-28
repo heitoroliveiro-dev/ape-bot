@@ -39,6 +39,14 @@ class Tipo(Enum):
     def de_zap(cls, unit_type: str) -> "Tipo | None":
         return _DO_ZAP.get(unit_type)
 
+    @property
+    def slug_netimoveis(self) -> str:
+        return _SLUG_NETIMOVEIS[self]
+
+    @classmethod
+    def de_netimoveis(cls, tipo_portal: str) -> "Tipo | None":
+        return _DO_NETIMOVEIS.get(tipo_portal)
+
 
 _SLUG_URL = {
     Tipo.APARTAMENTO: "apartamento",
@@ -75,7 +83,30 @@ _DO_ZAP = {
     "FLAT": Tipo.KITNET,
 }
 
-NOMES_FONTE = {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX"}
+# research R3 (005): a busca de apartamento já traz cobertura e área privativa; o tipo vem da URL
+_SLUG_NETIMOVEIS = {
+    Tipo.APARTAMENTO: "apartamento",
+    Tipo.CASA: "casa",
+    Tipo.CASA_CONDOMINIO: "casa-em-condominio",
+    Tipo.KITNET: "kitchenette",
+}
+_DO_NETIMOVEIS = {
+    "apartamento": Tipo.APARTAMENTO,
+    "cobertura": Tipo.APARTAMENTO,
+    "area-privativa": Tipo.APARTAMENTO,
+    "andar-pilotis": Tipo.APARTAMENTO,
+    "casa": Tipo.CASA,
+    "casa-geminada": Tipo.CASA,
+    "sobrado": Tipo.CASA,
+    "duplex": Tipo.CASA,
+    "casa-em-condominio": Tipo.CASA_CONDOMINIO,
+    "kitchenette": Tipo.KITNET,
+    "studio": Tipo.KITNET,
+    "flat": Tipo.KITNET,
+    "loft": Tipo.KITNET,
+}
+
+NOMES_FONTE = {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX", "netimoveis": "Netimóveis"}
 
 # As 9 regionais da PBH, na ordem do teclado do cadastro; "Outros" junta os bairros sem regional.
 REGIONAIS = (

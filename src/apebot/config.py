@@ -36,6 +36,8 @@ class Segredos:
     entrega_intervalo: tuple[int, int] = ENTREGA_INTERVALO_PADRAO
     entrega_intervalo_invalido: str | None = None
     filtros_yaml: str = ""  # conteúdo do filtros.yaml (Railway, sem arquivo montado)
+    netimoveis: bool = False  # research R6 da 005: desligado até ligar por NETIMOVEIS
+    netimoveis_invalido: str | None = None
 
 
 @dataclass
@@ -69,6 +71,7 @@ def carregar_segredos() -> Segredos:
         gecko_api_key=os.environ.get("GECKO_API_KEY", "").strip(),
         **_fontes_gecko(os.environ.get("GECKO_FONTES", "zap")),
         **_entrega_intervalo(os.environ.get("ENTREGA_INTERVALO")),
+        **_netimoveis(os.environ.get("NETIMOVEIS")),
     )
 
 
@@ -79,6 +82,21 @@ def _entrega_intervalo(texto: str | None) -> dict[str, Any]:
     if minimo.isdigit() and maximo.isdigit() and 1 <= int(minimo) <= int(maximo) <= 3600:
         return {"entrega_intervalo": (int(minimo), int(maximo))}
     return {"entrega_intervalo_invalido": texto}
+
+
+def _netimoveis(texto: str | None) -> dict[str, Any]:
+    valor = (texto or "desligado").strip().lower()
+    if valor in ("ligado", "desligado"):
+        return {"netimoveis": valor == "ligado"}
+    return {"netimoveis": False, "netimoveis_invalido": texto}
+
+
+def problemas_netimoveis(segredos: Segredos) -> list[str]:
+    if segredos.netimoveis_invalido is None:
+        return []
+    return [
+        f"NETIMOVEIS: valor desconhecido '{segredos.netimoveis_invalido}'; Netimóveis desligado"
+    ]
 
 
 def _fontes_gecko(texto: str) -> dict[str, tuple[str, ...]]:

@@ -9,6 +9,7 @@ from apebot.config import (
     carregar_segredos,
     problemas_entrega,
     problemas_gecko,
+    problemas_netimoveis,
 )
 from apebot.modelos import Tipo
 
@@ -128,6 +129,7 @@ def ambiente(monkeypatch):
     monkeypatch.delenv("GECKO_FONTES", raising=False)
     monkeypatch.delenv("ENTREGA_INTERVALO", raising=False)
     monkeypatch.delenv("FILTROS_YAML", raising=False)
+    monkeypatch.delenv("NETIMOVEIS", raising=False)
     return monkeypatch
 
 
@@ -199,3 +201,28 @@ def test_sem_variavel_le_o_arquivo(ambiente, tmp_path):
     caminho.write_text(textwrap.dedent(VALIDO), encoding="utf-8")
     ambiente.setenv("FILTROS_PATH", str(caminho))
     assert carregar_configuracao(carregar_segredos(), BAIRROS).operador_chat_id == 1
+
+
+def test_netimoveis_desligado_por_padrao(ambiente):
+    segredos = carregar_segredos()
+    assert segredos.netimoveis is False
+    assert problemas_netimoveis(segredos) == []
+
+
+@pytest.mark.parametrize(
+    ("valor", "ligado"), [("ligado", True), (" Ligado ", True), ("desligado", False)]
+)
+def test_netimoveis_ligado_e_desligado(ambiente, valor, ligado):
+    ambiente.setenv("NETIMOVEIS", valor)
+    segredos = carregar_segredos()
+    assert segredos.netimoveis is ligado
+    assert problemas_netimoveis(segredos) == []
+
+
+def test_netimoveis_valor_desconhecido_fica_desligado(ambiente):
+    ambiente.setenv("NETIMOVEIS", "talvez")
+    segredos = carregar_segredos()
+    assert segredos.netimoveis is False
+    assert problemas_netimoveis(segredos) == [
+        "NETIMOVEIS: valor desconhecido 'talvez'; Netimóveis desligado"
+    ]
