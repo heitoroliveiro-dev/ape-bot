@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apebot"
+version = "0.1.0"
+description = "Avisa no Telegram imóveis novos para alugar em Belo Horizonte"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "python-telegram-bot[job-queue]>=21.0",
+    "redis>=5.0",
+    "PyMySQL>=1.1",
+    "PyYAML>=6.0",
+    "tzdata",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+apebot = ["dados/*.txt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".specify", ".claude", "docs", "specs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

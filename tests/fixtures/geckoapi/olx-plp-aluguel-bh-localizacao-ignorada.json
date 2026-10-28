@@ -1,0 +1,282 @@
+{
+  "requestId": "4935c5d9-5f6f-4a20-b1a5-cc5ad61f662b",
+  "executionId": "8e4e58b1-7d53-4412-9d6e-bcd85a44f722",
+  "data": {
+    "source": "olx.com.br",
+    "type": "plp",
+    "parser": "1.0.0",
+    "url": "https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte-e-regiao/belo-horizonte?sf=1",
+    "requestUrl": "https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte-e-regiao/belo-horizonte?sf=1",
+    "extractedAt": "2026-10-28T02:37:58.757Z",
+    "query": null,
+    "state": "MG",
+    "sort": "date",
+    "totalResults": 592033,
+    "primaryResults": 50,
+    "page": 1,
+    "resultsPerPage": 50,
+    "offset": 0,
+    "nextPage": 2,
+    "nextPageUrl": "https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte-e-regiao/belo-horizonte?sf=1&o=2",
+    "items": [
+      {
+        "position": 1,
+        "id": "1544571237",
+        "url": "https://sp.olx.com.br/grande-campinas/imoveis/casa-em-condominio-1544571237",
+        "title": "Casa em Condomínio",
+        "category": "Casas",
+        "categoryId": 1002,
+        "condition": null,
+        "price": 9500,
+        "priceDisplay": "R$ 9.500",
+        "oldPrice": null,
+        "oldPriceDisplay": null,
+        "featured": false,
+        "professionalAd": true,
+        "chatEnabled": false,
+        "listedAt": "2026-10-28T02:29:30.000Z",
+        "listedAtEpoch": 1793154570,
+        "imageCount": 20,
+        "images": [
+          {
+            "url": "https://img.olx.com.br/images/44/441683810669478.jpg",
+            "webpUrl": "https://img.olx.com.br/images/44/441683810669478.webp"
+          }
+        ],
+        "location": {
+          "city": "Piracicaba",
+          "state": "SP",
+          "neighborhood": "Taquaral",
+          "ddd": "19",
+          "display": "Piracicaba, Taquaral"
+        },
+        "properties": [
+          {
+            "name": "category",
+            "label": "Categoria",
+            "value": "Casas"
+          },
+          {
+            "name": "real_estate_type",
+            "label": "Tipo",
+            "value": "Aluguel - casa em condominio fechado"
+          },
+          {
+            "name": "condominio",
+            "label": "Condomínio",
+            "value": "R$ 497"
+          },
+          {
+            "name": "iptu",
+            "label": "IPTU",
+            "value": "R$ 200"
+          },
+          {
+            "name": "size",
+            "label": "Área construída",
+            "value": "230m²"
+          },
+          {
+            "name": "rooms",
+            "label": "Quartos",
+            "value": "3"
+          },
+          {
+            "name": "bathrooms",
+            "label": "Banheiros",
+            "value": "5 ou mais"
+          },
+          {
+            "name": "garage_spaces",
+            "label": "Vagas na garagem",
+            "value": "4"
+          },
+          {
+            "name": "re_features",
+            "label": "Detalhes do imóvel",
+            "value": "Ar condicionado, Área de serviço, Churrasqueira"
+          },
+          {
+            "name": "re_complex_features",
+            "label": "Detalhes do condomínio",
+            "value": "Condomínio fechado, Aceita pet"
+          },
+          {
+            "name": "re_types",
+            "label": "Tipo",
+            "value": "Casa de condomínio"
+          }
+        ],
+        "olxPayEnabled": false,
+        "olxDeliveryEnabled": false
+      },
+      {
+        "position": 2,
+        "id": "1544571934",
+        "url": "https://go.olx.com.br/grande-goiania-e-anapolis/imoveis/imovel-para-aluguel-tem-58-metros-quadrados-com-2-quartos-em-vila-monticelli-goiania-g-1544571934",
+        "title": "Imóvel para aluguel tem 58 metros quadrados com 2 quartos em Vila Monticelli - Goiânia - G",
+        "category": "Apartamentos",
+        "categoryId": 1002,
+        "condition": null,
+        "price": 1300,
+        "priceDisplay": "R$ 1.300",
+        "oldPrice": null,
+        "oldPriceDisplay": null,
+        "featured": false,
+        "professionalAd": true,
+        "chatEnabled": true,
+        "listedAt": "2026-10-28T02:29:26.000Z",
+        "listedAtEpoch": 1793154566,
+        "imageCount": 20,
+        "images": [
+          {
+            "url": "https://img.olx.com.br/images/49/494607216025750.jpg",
+            "webpUrl": "https://img.olx.com.br/images/49/494607216025750.webp"
+          }
+        ],
+        "location": {
+          "city": "Goiânia",
+          "state": "GO",
+          "neighborhood": "Vila Monticelli",
+          "ddd": "62",
+          "display": "Goiânia, Vila Monticelli"
+        },
+        "properties": [
+          {
+            "name": "category",
+            "label": "Categoria",
+            "value": "Apartamentos"
+          },
+          {
+            "name": "real_estate_type",
+            "label": "Tipo",
+            "value": "Aluguel - apartamento padrão"
+          },
+          {
+            "name": "condominio",
+            "label": "Condomínio",
+            "value": "R$ 400"
+          },
+          {
+            "name": "iptu",
+            "label": "IPTU",
+            "value": "R$ 20"
+          },
+          {
+            "name": "size",
+            "label": "Área útil",
+            "value": "58m²"
+          },
+          {
+            "name": "rooms",
+            "label": "Quartos",
+            "value": "2"
+          },
+          {
+            "name": "bathrooms",
+            "label": "Banheiros",
+            "value": "1"
+          },
+          {
+            "name": "garage_spaces",
+            "label": "Vagas na garagem",
+            "value": "1"
+          },
+          {
+            "name": "re_features",
+            "label": "Detalhes do imóvel",
+            "value": "Área de serviço, Churrasqueira, Piscina"
+          },
+          {
+            "name": "re_complex_features",
+            "label": "Detalhes do condomínio",
+            "value": "Condomínio fechado, Elevador, Aceita pet, Piscina, Salão de festas"
+          },
+          {
+            "name": "re_types",
+            "label": "Tipo",
+            "value": "Padrão"
+          }
+        ],
+        "olxPayEnabled": false,
+        "olxDeliveryEnabled": false
+      },
+      {
+        "position": 3,
+        "id": "1548119150",
+        "url": "https://pr.olx.com.br/regiao-de-curitiba-e-paranagua/imoveis/casa-para-ferias-no-litoral-do-parana-1548119150",
+        "title": "Casa para férias no litoral do Paraná",
+        "category": "Casas",
+        "categoryId": 1002,
+        "condition": null,
+        "price": 1200,
+        "priceDisplay": "R$ 1.200",
+        "oldPrice": null,
+        "oldPriceDisplay": null,
+        "featured": false,
+        "professionalAd": false,
+        "chatEnabled": true,
+        "listedAt": "2026-10-28T02:28:56.000Z",
+        "listedAtEpoch": 1793154536,
+        "imageCount": 20,
+        "images": [
+          {
+            "url": "https://img.olx.com.br/images/17/176670576148349.jpg",
+            "webpUrl": "https://img.olx.com.br/images/17/176670576148349.webp"
+          }
+        ],
+        "location": {
+          "city": "Matinhos",
+          "state": "PR",
+          "neighborhood": null,
+          "ddd": "41",
+          "display": "Matinhos"
+        },
+        "properties": [
+          {
+            "name": "category",
+            "label": "Categoria",
+            "value": "Casas"
+          },
+          {
+            "name": "real_estate_type",
+            "label": "Tipo",
+            "value": "Aluguel - casa em rua pública"
+          },
+          {
+            "name": "rooms",
+            "label": "Quartos",
+            "value": "5 ou mais"
+          },
+          {
+            "name": "bathrooms",
+            "label": "Banheiros",
+            "value": "5 ou mais"
+          },
+          {
+            "name": "garage_spaces",
+            "label": "Vagas na garagem",
+            "value": "3"
+          },
+          {
+            "name": "re_features",
+            "label": "Detalhes do imóvel",
+            "value": "Ar condicionado, Área de serviço, Armários na cozinha, Armários no quarto, Churrasqueira, Mobiliado, Quarto de serviço, Varanda"
+          },
+          {
+            "name": "re_complex_features",
+            "label": "Detalhes do condomínio",
+            "value": "Área murada, Aceita pet, Piscina, Portão eletrônico"
+          },
+          {
+            "name": "re_types",
+            "label": "Tipo",
+            "value": "Padrão"
+          }
+        ],
+        "olxPayEnabled": false,
+        "olxDeliveryEnabled": false
+      }
+    ]
+  }
+}

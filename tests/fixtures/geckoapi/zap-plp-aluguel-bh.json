@@ -1,0 +1,366 @@
+{
+  "requestId": "3136ff9f-c3fe-41cf-8bfc-bfd426c982a5",
+  "executionId": "a6479b1d-eb78-47d6-b232-e9c53309c263",
+  "data": {
+    "source": "zapimoveis.com.br",
+    "type": "plp",
+    "parser": "1.0.0",
+    "url": "https://www.zapimoveis.com.br/aluguel/imoveis/mg+belo-horizonte/?transacao=aluguel&pagina=1",
+    "requestUrl": "https://www.zapimoveis.com.br/aluguel/imoveis/mg+belo-horizonte/?transacao=aluguel&pagina=1",
+    "extractedAt": "2026-10-28T02:40:11.683Z",
+    "keyword": "",
+    "query": "",
+    "city": "Belo Horizonte",
+    "citySlug": "belo-horizonte",
+    "state": "MG",
+    "businessType": "rent",
+    "neighborhood": null,
+    "propertyTypes": [],
+    "latitude": null,
+    "longitude": null,
+    "searchId": "f7e6d3c7-ec04-42a2-ad1f-ebe2c2b70953",
+    "totalResults": 22060,
+    "primaryResults": 30,
+    "page": 1,
+    "resultsPerPage": 30,
+    "offset": 0,
+    "nextPage": 2,
+    "nextPageUrl": "https://www.zapimoveis.com.br/aluguel/imoveis/mg+belo-horizonte/?transacao=aluguel&pagina=2",
+    "items": [
+      {
+        "position": 1,
+        "id": "2919519749",
+        "externalId": "83992",
+        "title": "Apartamento para alugar com 80 m², 2 quartos, 2 banheiros, 2 vagas",
+        "url": "https://www.zapimoveis.com.br/imovel/aluguel-apartamento-2-quartos-com-piscina-gutierrez-belo-horizonte-mg-80m2-id-2919519749/",
+        "business": "RENTAL",
+        "listingType": "USED",
+        "unitTypes": [
+          "APARTMENT"
+        ],
+        "contractType": "REAL_ESTATE",
+        "highlight": null,
+        "description": "Sala para dois ambientes, projeto de iluminação, teto com rebaixamento em gesso, varanda, dois quartos com armários sendo um suíte, banheiro social, cozinha com armários. \n\n2 vagas de garagem em linha\n\nPrédio com vista para quase toda Belo Horizonte, área de lazer, com piscinas adulto e infantil, salão de festas, espaço gourmet, wine bar, sauna com área de descanso, academia, espaço massagem, espaço kids, coworking, mercado compartilhado, pet care e bicicletário.\n\nMedidor de água e gás individualizados. (Os preços e informações poderão sofrer mudanças. Solicitamos a confirmação com nossa equipe)Apartamento disponivel para venda",
+        "address": {
+          "city": "Belo Horizonte",
+          "state": "MG",
+          "neighborhood": "Gutierrez",
+          "street": "Rua Benjamim Jacob",
+          "streetNumber": "327",
+          "latitude": -19.940426,
+          "longitude": -43.960334,
+          "isApproximateLocation": false
+        },
+        "prices": {
+          "mainValue": 4890,
+          "rent": 4890,
+          "condominium": 564,
+          "iptu": null,
+          "period": "MONTHLY",
+          "belowPrice": null,
+          "multiplePrices": false
+        },
+        "stamps": [],
+        "amenities": [
+          "GARAGE",
+          "GOURMET_SPACE",
+          "ALARM_SYSTEM",
+          "SAUNA",
+          "PARTY_HALL",
+          "MASSAGE_ROOM",
+          "KITCHEN",
+          "BALCONY",
+          "GARDEN",
+          "CONCIERGE_24H",
+          "ELEVATOR",
+          "GATED_COMMUNITY",
+          "MOUNTAIN_VIEW",
+          "HEATING",
+          "POOL",
+          "SPA",
+          "SERVICE_AREA",
+          "WATCHMAN",
+          "GYM",
+          "SAFETY_CIRCUIT"
+        ],
+        "mainAmenities": [
+          "GARAGE",
+          "GOURMET_SPACE",
+          "ALARM_SYSTEM",
+          "SAUNA",
+          "PARTY_HALL",
+          "MASSAGE_ROOM",
+          "KITCHEN",
+          "BALCONY",
+          "GARDEN",
+          "CONCIERGE_24H",
+          "ELEVATOR",
+          "GATED_COMMUNITY",
+          "MOUNTAIN_VIEW",
+          "HEATING",
+          "POOL",
+          "SPA",
+          "SERVICE_AREA",
+          "WATCHMAN",
+          "GYM",
+          "SAFETY_CIRCUIT"
+        ],
+        "attributes": {
+          "usableAreas": [
+            80
+          ],
+          "totalAreas": [],
+          "bedrooms": [
+            2
+          ],
+          "bathrooms": [
+            2
+          ],
+          "suites": [
+            1
+          ],
+          "parkingSpaces": [
+            2
+          ],
+          "floors": [
+            20
+          ],
+          "unitFloor": 19
+        },
+        "advertiser": {
+          "id": "c5d21537-c3c1-8348-0052-1e81224d0710",
+          "name": "Imobiliária Fictícia",
+          "tier": "diamond",
+          "license": "00000-J-MG",
+          "createdDate": "2018-03-28T07:39:30Z",
+          "rating": null,
+          "imageUrl": null,
+          "phoneNumbers": [
+            "3100000000"
+          ],
+          "whatsAppNumber": "31900000000",
+          "isVerified": true,
+          "isPremium": null
+        },
+        "images": [
+          {
+            "url": "https://resizedimgs.zapimoveis.com.br/img/vr-listing/12122b12a6124d1a36199cf4ceddf38b/imagem.webp?action=fit-in&dimension=900x900",
+            "alt": "Apartamento com 2 Quartos para alugar, 80m² no Gutierrez, Belo Horizonte",
+            "seo": true
+          }
+        ],
+        "childrenCount": 0
+      },
+      {
+        "position": 2,
+        "id": "2917812668",
+        "externalId": "33785",
+        "title": "Casa para alugar com 280 m², 2 quartos, 1 banheiro, 3 vagas",
+        "url": "https://www.zapimoveis.com.br/imovel/aluguel-casa-2-quartos-com-cozinha-funcionarios-belo-horizonte-mg-280m2-id-2917812668/",
+        "business": "RENTAL",
+        "listingType": "USED",
+        "unitTypes": [
+          "HOME"
+        ],
+        "contractType": "REAL_ESTATE",
+        "highlight": null,
+        "description": "Excelente localização, esquina com a Avenida do Contorno, na área hospitalar, próximo dos principais comércios e serviços da região. \n\nCasa para fins comerciais e residenciais com área total de aproximadamente 280m²;\n03 vagas de garagem com possibilidade de movimentação para mas vagas. \n\nCasa de cima composta por: \n02 salas; \n02 quartos; \n01 banheiro \n01 cozinha.\n\nCasa na parte de baixo composta por: \n04 salas;\nAmpla área verde externa. \n02 Banheiros externo. \n\nIPTU JÁ INCLUSO NA LOCAÇÃO.\n\nOs valores do aluguel e encargos (IPTU/condomínio etc.) poderão sofrer alterações sem aviso prévio e deverão ser confirmados com nossos consultores.",
+        "address": {
+          "city": "Belo Horizonte",
+          "state": "MG",
+          "neighborhood": "Funcionários",
+          "street": "Rua Grão Pará",
+          "streetNumber": "1024",
+          "latitude": -19.93101,
+          "longitude": -43.924154,
+          "isApproximateLocation": false
+        },
+        "prices": {
+          "mainValue": 11000,
+          "rent": 11000,
+          "condominium": 0,
+          "iptu": 0,
+          "period": "MONTHLY",
+          "belowPrice": null,
+          "multiplePrices": false
+        },
+        "stamps": [],
+        "amenities": [
+          "KITCHEN",
+          "GRASS",
+          "GARDEN",
+          "GARAGE",
+          "SERVICE_AREA",
+          "GATED_COMMUNITY",
+          "FULL_CABLING",
+          "INTERNET_ACCESS"
+        ],
+        "mainAmenities": [
+          "KITCHEN",
+          "GRASS",
+          "GARDEN",
+          "GARAGE",
+          "SERVICE_AREA",
+          "GATED_COMMUNITY",
+          "FULL_CABLING",
+          "INTERNET_ACCESS"
+        ],
+        "attributes": {
+          "usableAreas": [
+            280
+          ],
+          "totalAreas": [],
+          "bedrooms": [
+            2
+          ],
+          "bathrooms": [
+            1
+          ],
+          "suites": [
+            0
+          ],
+          "parkingSpaces": [
+            3
+          ],
+          "floors": [
+            0
+          ],
+          "unitFloor": 1
+        },
+        "advertiser": {
+          "id": "e628792f-b0ad-b14a-2c6b-c2c29d19dce0",
+          "name": "Imobiliária Fictícia",
+          "tier": "diamond",
+          "license": "00000-J-MG",
+          "createdDate": "2018-03-27T14:34:31Z",
+          "rating": null,
+          "imageUrl": null,
+          "phoneNumbers": [
+            "3100000000"
+          ],
+          "whatsAppNumber": "31900000000",
+          "isVerified": null,
+          "isPremium": null
+        },
+        "images": [
+          {
+            "url": "https://resizedimgs.zapimoveis.com.br/img/vr-listing/76ffb345ac6102f99904b336055f021c/imagem.webp?action=fit-in&dimension=900x900",
+            "alt": "Casa com 2 Quartos para alugar, 280m² no Funcionários, Belo Horizonte",
+            "seo": true
+          }
+        ],
+        "childrenCount": 0
+      },
+      {
+        "position": 3,
+        "id": "2919116764",
+        "externalId": "2586",
+        "title": "Apartamento para alugar com 55 m², 2 quartos, 2 banheiros, 2 vagas",
+        "url": "https://www.zapimoveis.com.br/imovel/aluguel-apartamento-2-quartos-com-piscina-buritis-belo-horizonte-mg-55m2-id-2919116764/",
+        "business": "RENTAL",
+        "listingType": "USED",
+        "unitTypes": [
+          "APARTMENT"
+        ],
+        "contractType": "REAL_ESTATE",
+        "highlight": null,
+        "description": null,
+        "address": {
+          "city": "Belo Horizonte",
+          "state": "MG",
+          "neighborhood": "Buritis",
+          "street": "Rua Professora Bartira Mourão",
+          "streetNumber": "187",
+          "latitude": -19.97079,
+          "longitude": -43.967736,
+          "isApproximateLocation": false
+        },
+        "prices": {
+          "mainValue": 3650,
+          "rent": 3650,
+          "condominium": 400,
+          "iptu": 222,
+          "period": "MONTHLY",
+          "belowPrice": null,
+          "multiplePrices": false
+        },
+        "stamps": [],
+        "amenities": [
+          "HEATING",
+          "GARDEN",
+          "GOURMET_SPACE",
+          "GATED_COMMUNITY",
+          "INTERCOM",
+          "SAFETY_CIRCUIT",
+          "PETS_ALLOWED",
+          "ELEVATOR",
+          "GARAGE",
+          "SAUNA",
+          "POOL",
+          "KITCHEN",
+          "PARTY_HALL"
+        ],
+        "mainAmenities": [
+          "HEATING",
+          "GARDEN",
+          "GOURMET_SPACE",
+          "GATED_COMMUNITY",
+          "INTERCOM",
+          "SAFETY_CIRCUIT",
+          "PETS_ALLOWED",
+          "ELEVATOR",
+          "GARAGE",
+          "SAUNA",
+          "POOL",
+          "KITCHEN",
+          "PARTY_HALL"
+        ],
+        "attributes": {
+          "usableAreas": [
+            55
+          ],
+          "totalAreas": [],
+          "bedrooms": [
+            2
+          ],
+          "bathrooms": [
+            2
+          ],
+          "suites": [
+            1
+          ],
+          "parkingSpaces": [
+            2
+          ],
+          "floors": [
+            10
+          ],
+          "unitFloor": 0
+        },
+        "advertiser": {
+          "id": "e78e18c0-e538-5afd-2b10-532827512959",
+          "name": "Imobiliária Fictícia",
+          "tier": "diamond",
+          "license": "00000-J-MG",
+          "createdDate": "2018-03-28T03:25:30Z",
+          "rating": null,
+          "imageUrl": null,
+          "phoneNumbers": [
+            "3100000000"
+          ],
+          "whatsAppNumber": "31900000000",
+          "isVerified": false,
+          "isPremium": null
+        },
+        "images": [
+          {
+            "url": "https://resizedimgs.zapimoveis.com.br/img/vr-listing/80cd694ade9f2c5518f0aec44910e96e/imagem.webp?action=fit-in&dimension=900x900",
+            "alt": "Apartamento com 2 Quartos para alugar, 55m² no Buritis, Belo Horizonte",
+            "seo": true
+          }
+        ],
+        "childrenCount": 0
+      }
+    ]
+  }
+}

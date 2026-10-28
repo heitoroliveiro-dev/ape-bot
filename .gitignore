@@ -1,0 +1,15 @@
+.env
+filtros.yaml
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.claude/settings.local.json
+.DS_Store
+*.swp
+.vscode/
+.idea/
