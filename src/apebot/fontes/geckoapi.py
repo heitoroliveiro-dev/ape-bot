@@ -168,6 +168,17 @@ class ClienteGecko:
         return resposta.json()
 
 
+async def saldo(gecko: "ClienteGecko | None") -> dict[str, Any] | str | None:
+    """Créditos para o /status e o resumo: dict, "indisponível" em erro, None sem GeckoAPI."""
+    if gecko is None:
+        return None
+    try:
+        return await gecko.creditos()
+    except (ErroGecko, ValueError) as erro:
+        log.warning("creditos_indisponiveis erro=%s", erro)
+        return "indisponível"
+
+
 class _SalvaResposta(Protocol):
     def salvar_resposta(self, resposta: RespostaGecko) -> bool: ...
 

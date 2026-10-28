@@ -1,6 +1,16 @@
 from dataclasses import replace
 
-from apebot.filtro import aceita, filtros_somados, hash_filtros, novos_para
+import pytest
+
+from apebot.filtro import (
+    aceita,
+    e_achado,
+    filtro_de_json,
+    filtro_para_json,
+    filtros_somados,
+    limite_achado,
+    novos_para,
+)
 from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
 
 FILTRO = Filtro(
@@ -74,22 +84,41 @@ def test_pessoas_com_filtros_diferentes_recebem_conjuntos_diferentes():
     assert [a.id_externo for a in novos_para(ana, [ANUNCIO, casa], set())] == ["9"]
 
 
-def test_hash_filtros_estavel_e_sensivel_a_mudancas():
-    mesmo = Filtro(
-        bairros=frozenset({"funcionarios", "buritis"}),
-        aluguel_max_centavos=300_000,
-        quartos_min=2,
-        tipos=frozenset({Tipo.APARTAMENTO}),
-    )
-    assert hash_filtros(FILTRO) == hash_filtros(mesmo)
-    assert len(hash_filtros(FILTRO)) == 64
-    for alterado in (
-        replace(FILTRO, bairros=frozenset({"buritis"})),
-        replace(FILTRO, aluguel_max_centavos=300_100),
-        replace(FILTRO, quartos_min=3),
-        replace(FILTRO, tipos=frozenset({Tipo.APARTAMENTO, Tipo.CASA})),
-    ):
-        assert hash_filtros(alterado) != hash_filtros(FILTRO)
+CATALOGO = frozenset({"buritis", "funcionarios", "sion"})
+
+
+def test_filtro_json_ida_e_volta():
+    dados = filtro_para_json(FILTRO)
+    assert dados == {
+        "bairros": ["buritis", "funcionarios"],
+        "aluguel_max_centavos": 300_000,
+        "quartos_min": 2,
+        "tipos": ["apartamento"],
+    }
+    assert filtro_de_json(dados, CATALOGO) == FILTRO
+
+
+@pytest.mark.parametrize(
+    "mudanca",
+    [
+        {"bairros": []},
+        {"tipos": []},
+        {"bairros": ["buritis", "atlantida"]},
+        {"tipos": ["mansao"]},
+        {"quartos_min": 5},
+        {"quartos_min": -1},
+        {"aluguel_max_centavos": 29_999},
+        {"aluguel_max_centavos": 5_000_001},
+        {"aluguel_max_centavos": "3000"},
+    ],
+)
+def test_filtro_de_json_invalido(mudanca):
+    assert filtro_de_json(filtro_para_json(FILTRO) | mudanca, CATALOGO) is None
+
+
+def test_filtro_de_json_incompleto():
+    assert filtro_de_json({"bairros": ["buritis"]}, CATALOGO) is None
+    assert filtro_de_json(None, CATALOGO) is None
 
 
 def test_filtros_somados():
@@ -114,3 +143,15 @@ def test_filtros_somados():
 
 def test_filtros_somados_sem_pessoas():
     assert filtros_somados([]) is None
+
+
+def test_limite_achado_e_70_por_cento_arredondado_para_baixo():
+    assert limite_achado(FILTRO) == 210_000
+    assert limite_achado(replace(FILTRO, aluguel_max_centavos=333_333)) == 233_333
+
+
+def test_e_achado():
+    assert e_achado(FILTRO, replace(ANUNCIO, aluguel_centavos=210_000))
+    assert not e_achado(FILTRO, replace(ANUNCIO, aluguel_centavos=210_001))
+    fora_do_bairro = replace(ANUNCIO, aluguel_centavos=150_000, bairro_slug="sion")
+    assert not e_achado(FILTRO, fora_do_bairro)

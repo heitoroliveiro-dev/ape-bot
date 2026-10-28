@@ -4,15 +4,17 @@ import json
 import logging
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pymysql
 
-from apebot.config import Segredos
+from apebot.cadastro import Estado
+from apebot.config import Segredos, bairros_validos
+from apebot.filtro import filtro_de_json, filtro_para_json
 from apebot.fontes.geckoapi import RespostaGecko
 from apebot.fontes.resultado import ResultadoFonte
-from apebot.modelos import Anuncio, Pessoa, Tipo
+from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
 
 log = logging.getLogger(__name__)
 
@@ -71,14 +73,116 @@ class Banco:
 
     # pessoas ---------------------------------------------------------------
 
-    def sincronizar_pessoas(self, pessoas: Iterable[Pessoa]) -> None:
+    def semear_pessoas(
+        self, autorizados: dict[int, str | None], sementes: Iterable[Pessoa]
+    ) -> list[str]:
+        """Cria os chats autorizados e grava a semente do arquivo em quem ainda não tem cadastro.
+
+        O nome e os filtros passam a ser da pessoa (research R5 da 003): o arquivo não sobrescreve
+        quem já tem cadastro. Devolve os avisos ao operador.
+        """
+        avisos = []
+        momento = agora()
         with self._cursor() as c:
-            for p in pessoas:
+            for chat_id, nome in autorizados.items():
                 c.execute(
-                    "INSERT INTO pessoa (chat_id, nome) VALUES (%s, %s)"
-                    " ON DUPLICATE KEY UPDATE nome = VALUES(nome)",
-                    (p.chat_id, p.nome),
+                    "INSERT IGNORE INTO pessoa (chat_id, nome) VALUES (%s, %s)",
+                    (chat_id, nome or str(chat_id)),
                 )
+            for p in sementes:
+                semente = filtro_para_json(p.filtro)
+                if filtro_de_json(semente, bairros_validos()) is None:
+                    avisos.append(f"{p.nome}: filtros do arquivo fora das regras do cadastro")
+                    continue
+                c.execute("SELECT filtros FROM pessoa WHERE chat_id = %s", (p.chat_id,))
+                (salvo,) = c.fetchone()
+                if salvo is None:
+                    c.execute(
+                        "UPDATE pessoa SET nome = %s, filtros = %s, cadastro_completo_em = %s,"
+                        " filtros_atualizados_em = %s WHERE chat_id = %s",
+                        (p.nome, json.dumps(semente), momento, momento, p.chat_id),
+                    )
+                elif json.loads(salvo) != semente:
+                    avisos.append(
+                        f"{p.nome}: filtros do arquivo ignorados;"
+                        " vale o que a pessoa salvou no Telegram"
+                    )
+        return avisos
+
+    def pessoas_ativas(self, autorizados: Iterable[int]) -> list[Pessoa]:
+        """Registradas, com cadastro completo, não pausadas e autorizadas no arquivo."""
+        permitidos = set(autorizados)
+        with self._cursor() as c:
+            c.execute(
+                "SELECT chat_id, nome, filtros FROM pessoa WHERE registrada_em IS NOT NULL"
+                " AND cadastro_completo_em IS NOT NULL AND pausada_em IS NULL"
+            )
+            linhas = c.fetchall()
+        pessoas = []
+        for chat_id, nome, filtros in linhas:
+            if chat_id not in permitidos:
+                continue
+            pessoa = _pessoa(chat_id, nome, filtros)
+            if pessoa is None:
+                log.warning("filtro_invalido chat_id=%s", chat_id)
+            else:
+                pessoas.append(pessoa)
+        return pessoas
+
+    def pessoa(self, chat_id: int) -> tuple[Pessoa | None, datetime | None, bool]:
+        """(pessoa com filtro, pausada_em, cadastro completo) de um chat."""
+        with self._cursor() as c:
+            c.execute(
+                "SELECT nome, filtros, pausada_em, cadastro_completo_em FROM pessoa"
+                " WHERE chat_id = %s",
+                (chat_id,),
+            )
+            linha = c.fetchone()
+        if linha is None:
+            return None, None, False
+        nome, filtros, pausada_em, completo_em = linha
+        completo = completo_em is not None
+        return (_pessoa(chat_id, nome, filtros) if completo else None), pausada_em, completo
+
+    def salvar_filtros(self, chat_id: int, nome: str, filtro: Filtro) -> None:
+        momento = agora()
+        with self._cursor() as c:
+            c.execute(
+                "UPDATE pessoa SET nome = %s, filtros = %s, filtros_atualizados_em = %s,"
+                " cadastro_completo_em = COALESCE(cadastro_completo_em, %s) WHERE chat_id = %s",
+                (nome, json.dumps(filtro_para_json(filtro)), momento, momento, chat_id),
+            )
+
+    # conversa do cadastro e da edição ---------------------------------------------------
+
+    def conversa(self, chat_id: int) -> Estado | None:
+        with self._cursor() as c:
+            c.execute("SELECT modo, etapa, rascunho FROM conversa WHERE chat_id = %s", (chat_id,))
+            linha = c.fetchone()
+        if linha is None:
+            return None
+        modo, etapa, rascunho = linha
+        return Estado(modo=modo, etapa=etapa, rascunho=json.loads(rascunho))
+
+    def salvar_conversa(self, chat_id: int, estado: Estado) -> None:
+        with self._cursor() as c:
+            c.execute(
+                "INSERT INTO conversa (chat_id, modo, etapa, rascunho, atualizada_em)"
+                " VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE modo = VALUES(modo),"
+                " etapa = VALUES(etapa), rascunho = VALUES(rascunho),"
+                " atualizada_em = VALUES(atualizada_em)",
+                (
+                    chat_id,
+                    estado.modo,
+                    estado.etapa,
+                    json.dumps(estado.rascunho, ensure_ascii=False),
+                    agora(),
+                ),
+            )
+
+    def apagar_conversa(self, chat_id: int) -> None:
+        with self._cursor() as c:
+            c.execute("DELETE FROM conversa WHERE chat_id = %s", (chat_id,))
 
     def registrar_pessoa(self, chat_id: int) -> None:
         with self._cursor() as c:
@@ -86,15 +190,6 @@ class Banco:
                 "UPDATE pessoa SET registrada_em = %s WHERE chat_id = %s AND registrada_em IS NULL",
                 (agora(), chat_id),
             )
-
-    def pessoas_registradas(self) -> dict[int, str | None]:
-        """chat_id → filtros_hash das pessoas que já enviaram /start e não estão pausadas."""
-        with self._cursor() as c:
-            c.execute(
-                "SELECT chat_id, filtros_hash FROM pessoa"
-                " WHERE registrada_em IS NOT NULL AND pausada_em IS NULL"
-            )
-            return {chat_id: filtros_hash for chat_id, filtros_hash in c.fetchall()}
 
     def pausar(self, chat_id: int) -> None:
         with self._cursor() as c:
@@ -104,11 +199,9 @@ class Banco:
             )
 
     def retomar(self, chat_id: int) -> None:
-        """Limpar o filtros_hash faz a próxima rodada mandar um resumo (research R9 da 002)."""
         with self._cursor() as c:
             c.execute(
-                "UPDATE pessoa SET pausada_em = NULL, filtros_hash = NULL"
-                " WHERE chat_id = %s AND pausada_em IS NOT NULL",
+                "UPDATE pessoa SET pausada_em = NULL WHERE chat_id = %s AND pausada_em IS NOT NULL",
                 (chat_id,),
             )
 
@@ -117,12 +210,6 @@ class Banco:
             c.execute("SELECT pausada_em FROM pessoa WHERE chat_id = %s", (chat_id,))
             linha = c.fetchone()
             return linha[0] if linha else None
-
-    def atualizar_filtros_hash(self, chat_id: int, filtros_hash: str) -> None:
-        with self._cursor() as c:
-            c.execute(
-                "UPDATE pessoa SET filtros_hash = %s WHERE chat_id = %s", (filtros_hash, chat_id)
-            )
 
     # anúncios --------------------------------------------------------------
 
@@ -213,17 +300,101 @@ class Banco:
                     (status, entregue_em, chat_id, fonte, id_externo),
                 )
 
-    def pendentes_antigos(self, minutos: int) -> list[tuple[int, Anuncio]]:
-        limite = agora() - timedelta(minutes=minutos)
+    def pendentes_de(self, chat_id: int) -> list[Anuncio]:
+        """Imóveis decididos para a pessoa e ainda não entregues (reconciliação, research R3)."""
         with self._cursor() as c:
             c.execute(
-                "SELECT e.chat_id, a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug,"
-                " a.quartos, a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
                 " FROM envio e JOIN anuncio a USING (fonte, id_externo)"
-                " WHERE e.status = 'pendente' AND e.criado_em < %s",
-                (limite,),
+                " WHERE e.chat_id = %s AND e.status = 'pendente'",
+                (chat_id,),
             )
-            return [(linha[0], _anuncio(linha[1:])) for linha in c.fetchall()]
+            return [_anuncio(linha) for linha in c.fetchall()]
+
+    def apagar_pendente(self, chat_id: int, chave: Chave) -> None:
+        """O imóvel volta a ser candidato numa rodada futura (descartado por filtro)."""
+        with self._cursor() as c:
+            c.execute(
+                "DELETE FROM envio WHERE chat_id = %s AND fonte = %s AND id_externo = %s"
+                " AND status = 'pendente'",
+                (chat_id, *chave),
+            )
+
+    def apagar_pendentes(self, chat_id: int) -> None:
+        with self._cursor() as c:
+            c.execute("DELETE FROM envio WHERE chat_id = %s AND status = 'pendente'", (chat_id,))
+
+    # lembrete de achados (004) ----------------------------------------------------------
+
+    def achados_para(self, chat_id: int, limite_centavos: int) -> list[Anuncio]:
+        """Entregues há 32 h ou mais, nunca relembrados, vistos nas últimas 24 h, fora dos
+        favoritos e com aluguel até o limite (research R1 da 004)."""
+        momento = agora()
+        with self._cursor() as c:
+            c.execute(
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                " FROM envio e JOIN anuncio a USING (fonte, id_externo)"
+                " LEFT JOIN favorito f ON f.chat_id = e.chat_id AND f.fonte = e.fonte"
+                " AND f.id_externo = e.id_externo"
+                " WHERE e.chat_id = %s AND e.status = 'entregue' AND e.lembrado_em IS NULL"
+                " AND e.entregue_em <= %s AND a.ultimo_visto_em >= %s"
+                " AND a.aluguel_centavos <= %s AND f.chat_id IS NULL",
+                (
+                    chat_id,
+                    momento - timedelta(hours=32),
+                    momento - timedelta(hours=24),
+                    limite_centavos,
+                ),
+            )
+            return [_anuncio(linha) for linha in c.fetchall()]
+
+    def marcar_lembrado(self, chat_id: int, chaves: Iterable[Chave]) -> None:
+        momento = agora()
+        with self._cursor() as c:
+            for fonte, id_externo in chaves:
+                c.execute(
+                    "UPDATE envio SET lembrado_em = %s"
+                    " WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                    (momento, chat_id, fonte, id_externo),
+                )
+
+    def e_favorito(self, chat_id: int, chave: Chave) -> bool:
+        with self._cursor() as c:
+            c.execute(
+                "SELECT 1 FROM favorito WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                (chat_id, *chave),
+            )
+            return c.fetchone() is not None
+
+    # favoritos ----------------------------------------------------------------------------
+
+    def alternar_favorito(self, chat_id: int, chave: Chave) -> bool:
+        """Salva ou remove; devolve se ficou salvo. A PK impede favorito duplicado (FR-012)."""
+        with self._cursor() as c:
+            if c.execute(
+                "INSERT IGNORE INTO favorito (chat_id, fonte, id_externo, salvo_em)"
+                " VALUES (%s, %s, %s, %s)",
+                (chat_id, *chave, agora()),
+            ):
+                return True
+            c.execute(
+                "DELETE FROM favorito WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                (chat_id, *chave),
+            )
+            return False
+
+    def favoritos(self, chat_id: int) -> list[Anuncio]:
+        with self._cursor() as c:
+            c.execute(
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                " FROM favorito f JOIN anuncio a USING (fonte, id_externo)"
+                " WHERE f.chat_id = %s ORDER BY f.salvo_em DESC, f.fonte, f.id_externo",
+                (chat_id,),
+            )
+            return [_anuncio(linha) for linha in c.fetchall()]
 
     # rodadas e alertas -----------------------------------------------------
 
@@ -311,6 +482,12 @@ class Banco:
             linha = c.fetchone()
             return linha[0] if linha else None
 
+    def ultima_rodada_iniciada(self) -> datetime | None:
+        with self._cursor() as c:
+            c.execute("SELECT MAX(iniciada_em) FROM rodada")
+            linha = c.fetchone()
+            return linha[0] if linha else None
+
     def estados_fonte(self) -> dict[str, tuple[str, str | None]]:
         """fonte → (status, erro_resumo) da última rodada em que a fonte aparece."""
         with self._cursor() as c:
@@ -321,14 +498,27 @@ class Banco:
             )
             return {fonte: (status, erro) for fonte, status, erro in c.fetchall()}
 
-    def recebidos_24h(self, chat_id: int) -> int:
+    def recebidos_por_fonte_24h(self, chat_id: int) -> dict[str, int]:
         with self._cursor() as c:
             c.execute(
-                "SELECT COUNT(*) FROM envio"
-                " WHERE chat_id = %s AND status = 'entregue' AND entregue_em >= %s",
+                "SELECT fonte, COUNT(*) FROM envio"
+                " WHERE chat_id = %s AND status = 'entregue' AND entregue_em >= %s"
+                " GROUP BY fonte",
                 (chat_id, agora() - timedelta(hours=24)),
             )
-            return int(c.fetchone()[0])
+            return {fonte: int(n) for fonte, n in c.fetchall()}
+
+    def recebidos_24h(self, chat_id: int) -> int:
+        return sum(self.recebidos_por_fonte_24h(chat_id).values())
+
+    def registrar_resumo(self, chat_id: int, dia: date) -> bool:
+        """True se é o primeiro resumo da pessoa nesse dia (FR-017 da 003)."""
+        with self._cursor() as c:
+            linhas = c.execute(
+                "INSERT IGNORE INTO resumo_diario (chat_id, dia, enviado_em) VALUES (%s, %s, %s)",
+                (chat_id, dia, agora()),
+            )
+        return linhas == 1
 
     def registrar_aviso(self, alerta_id: int) -> None:
         with self._cursor() as c:
@@ -337,6 +527,11 @@ class Banco:
     def fechar_alerta(self, alerta_id: int) -> None:
         with self._cursor() as c:
             c.execute("UPDATE alerta SET fechado_em = %s WHERE id = %s", (agora(), alerta_id))
+
+
+def _pessoa(chat_id: int, nome: str, filtros: str | None) -> Pessoa | None:
+    filtro = filtro_de_json(json.loads(filtros), bairros_validos()) if filtros else None
+    return Pessoa(chat_id=chat_id, nome=nome, filtro=filtro) if filtro else None
 
 
 def _anuncio(linha: tuple) -> Anuncio:

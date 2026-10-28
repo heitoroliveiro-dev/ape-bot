@@ -4,10 +4,10 @@ import argparse
 import asyncio
 import logging
 import time
-from datetime import time as horario
+from datetime import datetime
 from functools import partial
 
-from telegram.ext import Application, ContextTypes
+from telegram.ext import Application
 
 from apebot.banco import Banco
 from apebot.config import (
@@ -16,20 +16,23 @@ from apebot.config import (
     bairros_validos,
     carregar_filtros,
     carregar_segredos,
+    problemas_entrega,
     problemas_gecko,
 )
-from apebot.fila import Fila, Mensagem
+from apebot.fila import Fila, FilaPessoa, Mensagem
 from apebot.fontes import olx, quintoandar, zap
 from apebot.fontes.geckoapi import ClienteGecko
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.mensagens import COMANDOS, aviso_configuracao
 from apebot.modelos import FUSO, HORARIOS_RODADA, Pessoa
-from apebot.rodada import Coletor, Rodada
-from apebot.telegram_bot import Entregador, registrar_handlers
+from apebot.rodada import Coletor, Rodada, enviar_resumos, rodada_devida
+from apebot.telegram_bot import Despachante, Entregador, registrar_handlers
 
 log = logging.getLogger("apebot")
 
 ESPERA_FILA_MAX_SEGUNDOS = 600
+HORA_RESUMO = 23
+INTERVALO_AGENDADOR = 60
 TENTATIVAS_BANCO = 30
 
 
@@ -92,34 +95,43 @@ def _preparar_banco(segredos: Segredos, config: Configuracao) -> Banco:
             time.sleep(2)
     if novas:
         log.info("migracoes_aplicadas versoes=%s", ",".join(novas))
-    banco.sincronizar_pessoas(config.pessoas)
+    config.problemas.extend(banco.semear_pessoas(config.autorizados, config.sementes))
     return banco
 
 
 async def _rodada_agora(
     banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes
 ) -> None:
-    if not await asyncio.to_thread(banco.pessoas_registradas):
+    if not await asyncio.to_thread(banco.pessoas_ativas, config.autorizados):
         print(
-            "Nenhuma pessoa registrada. Mande /start ao bot com ele no ar e rode de novo.",
+            "Nenhuma pessoa ativa. Mande /start ao bot com ele no ar e rode de novo.",
             flush=True,
         )
         return
     fila = Fila(segredos.redis_url)
+    fila_pessoa = FilaPessoa(fila)
     try:
-        status = await Rodada(banco, fila, config, fontes.coletores).executar()
+        status = await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
         log.info("rodada_manual status=%s; aguardando o bot entregar a fila", status)
         limite = time.monotonic() + ESPERA_FILA_MAX_SEGUNDOS
         while await fila.tamanho() and time.monotonic() < limite:
             await asyncio.sleep(2)
         log.info("rodada_manual_fim fila_restante=%d", await fila.tamanho())
+        ativas = await asyncio.to_thread(banco.pessoas_ativas, config.autorizados)
+        na_fila = sum([await fila_pessoa.tamanho(p.chat_id) for p in ativas])
+        print(
+            f"Imóveis na fila das pessoas: {na_fila}. O bot entrega um por vez, das 8h às 22h.",
+            flush=True,
+        )
     finally:
         await fila.fechar()
 
 
 def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes) -> None:
     fila = Fila(segredos.redis_url)
+    fila_pessoa = FilaPessoa(fila)
     tarefas: list[asyncio.Task] = []
+    pulados: set[datetime] = set()
 
     async def ao_iniciar(app: Application) -> None:
         if config.problemas:
@@ -132,14 +144,44 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
             )
         await app.bot.set_my_commands(COMANDOS)
         tarefas.append(asyncio.create_task(Entregador(app, fila, banco).executar()))
+        despachante = Despachante(
+            fila, fila_pessoa, banco, config.autorizados, segredos.entrega_intervalo
+        )
+        tarefas.append(asyncio.create_task(despachante.executar()))
+        tarefas.append(asyncio.create_task(agendar_rodadas()))
 
     async def ao_encerrar(_: Application) -> None:
         for tarefa in tarefas:
             tarefa.cancel()
         await fila.fechar()
 
-    async def rodada_agendada(_: ContextTypes.DEFAULT_TYPE) -> None:
-        await Rodada(banco, fila, config, fontes.coletores).executar()
+    async def rodada_agendada(momento: datetime) -> None:
+        ultima = await asyncio.to_thread(banco.ultima_rodada_iniciada)
+        devida = rodada_devida(momento, ultima)
+        if devida is None:
+            return
+        if not await asyncio.to_thread(banco.pessoas_ativas, config.autorizados):
+            if devida not in pulados:  # um log por horário, não um por minuto
+                log.info("rodada_pulada_sem_pessoas horario=%s", devida.strftime("%H:%M"))
+                pulados.add(devida)
+            return
+        atraso = (momento - devida).total_seconds()
+        log.info("rodada_disparada horario=%s atraso=%.0fs", devida.strftime("%H:%M"), atraso)
+        await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
+        if devida.hour == HORA_RESUMO:  # depois da rodada, ok ou falha
+            await enviar_resumos(banco, fila, fontes.gecko, config.autorizados, datetime.now(FUSO))
+
+    async def agendar_rodadas() -> None:
+        # laço próprio no relógio de parede: o timer do APScheduler usa o relógio monotônico,
+        # que para quando o PC suspende, e a rodada se perdia sem log
+        while True:
+            try:
+                await rodada_agendada(datetime.now(FUSO))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("agendador_erro")
+            await asyncio.sleep(INTERVALO_AGENDADOR)
 
     app = (
         Application.builder()
@@ -148,14 +190,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
         .post_shutdown(ao_encerrar)
         .build()
     )
-    registrar_handlers(app, config, banco, fontes.ligadas, fontes.gecko)
-    for hora in HORARIOS_RODADA:
-        app.job_queue.run_daily(
-            rodada_agendada,
-            time=horario(hour=hora, tzinfo=FUSO),
-            name=f"rodada_{hora:02d}h",
-            job_kwargs={"max_instances": 1, "coalesce": True, "misfire_grace_time": 300},
-        )
+    registrar_handlers(app, config, banco, fila_pessoa, fontes.ligadas, fontes.gecko)
     log.info("rodadas_agendadas horarios=%s fuso=%s", HORARIOS_RODADA, FUSO.key)
     app.run_polling()
 
@@ -166,7 +201,7 @@ def main() -> None:
     args = _argumentos()
     segredos = carregar_segredos()
     config = carregar_filtros(segredos.filtros_path, bairros_validos())
-    config.problemas.extend(problemas_gecko(segredos))
+    config.problemas.extend(problemas_gecko(segredos) + problemas_entrega(segredos))
     for problema in config.problemas:
         log.warning("filtros_problema %s", problema)
     banco = _preparar_banco(segredos, config)

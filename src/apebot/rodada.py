@@ -1,36 +1,41 @@
-"""Uma rodada: coleta por fonte → banco → filtro → fila → registro e alerta.
+"""Uma rodada: coleta por fonte → banco → filtro → fila de cada pessoa → registro e alerta.
 
-Research R9/R10 da 001 e R7/R8 da 002: cada fonte é coletada isoladamente e registrada em
-rodada_fonte; o alerta é por fonte; o contato do anunciante só vive em memória e na fila.
+Research R9/R10 da 001, R7/R8 da 002 e R4 da 003: cada fonte é coletada isoladamente e registrada
+em rodada_fonte; o alerta é por fonte; a rodada não manda imóvel, só põe na fila da pessoa (o
+despachante entrega um por vez); o contato do anunciante só vive em memória e nas filas Redis.
 """
 
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from apebot.banco import Banco, agora
 from apebot.config import Configuracao
-from apebot.fila import Fila, Mensagem
-from apebot.filtro import hash_filtros, novos_para
+from apebot.fila import Fila, FilaPessoa, Mensagem
+from apebot.filtro import e_achado, limite_achado, novos_para
+from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.fontes.resultado import ResultadoFonte, status_rodada
-from apebot.mensagens import (
-    aviso_falha,
-    aviso_recuperacao,
-    botoes_imovel,
-    mensagem_imovel,
-    mensagens_resumo,
-)
-from apebot.modelos import FUSO, Anuncio, Contato, Pessoa
+from apebot.mensagens import aviso_falha, aviso_recuperacao, proxima_rodada, texto_resumo
+from apebot.modelos import FUSO, HORARIOS_RODADA, Anuncio, Contato, Pessoa
 
-__all__ = ["Coletor", "Rodada", "decidir_alerta", "status_rodada"]
+__all__ = [
+    "Coletor",
+    "Rodada",
+    "decidir_alerta",
+    "enviar_resumos",
+    "rodada_devida",
+    "status_rodada",
+]
 
 log = logging.getLogger(__name__)
 
 FALHAS_PARA_ALERTA = 3
 REAVISO = timedelta(hours=24)
+# rodada perdida (PC suspenso, robô parado) ainda roda se o atraso couber aqui
+JANELA_ATRASO = timedelta(hours=3)
 
 Chave = tuple[str, str]
 
@@ -54,12 +59,38 @@ def decidir_alerta(
     return "abrir" if seguidas >= FALHAS_PARA_ALERTA else "nada"
 
 
+def rodada_devida(momento: datetime, ultima_iniciada: datetime | None) -> datetime | None:
+    """Horário de HORARIOS_RODADA que já passou e ainda não rodou, ou None.
+
+    Olha o relógio de parede, não o monotônico: depois de o PC suspender, a rodada perdida
+    roda ao acordar. `ultima_iniciada` vem do banco em UTC sem fuso, como `agora()`.
+    """
+    local = momento.astimezone(FUSO)
+    horarios = [
+        datetime(dia.year, dia.month, dia.day, hora, tzinfo=FUSO)
+        for dia in (local.date() - timedelta(days=1), local.date())
+        for hora in HORARIOS_RODADA
+    ]
+    horario = max(h for h in horarios if h <= local)
+    if local - horario > JANELA_ATRASO:
+        return None
+    if ultima_iniciada is not None and ultima_iniciada.replace(tzinfo=UTC) >= horario:
+        return None
+    return horario
+
+
 class Rodada:
     def __init__(
-        self, banco: Banco, fila: Fila, config: Configuracao, coletores: list[Coletor]
+        self,
+        banco: Banco,
+        fila: Fila,
+        fila_pessoa: FilaPessoa,
+        config: Configuracao,
+        coletores: list[Coletor],
     ) -> None:
         self._banco = banco
         self._fila = fila
+        self._fila_pessoa = fila_pessoa
         self._config = config
         self._coletores = coletores
         self._contatos: dict[Chave, Contato] = {}
@@ -105,10 +136,10 @@ class Rodada:
     async def _coletar_e_enfileirar(
         self, rodada_id: int, contagens: Counter[str], resultados: list[ResultadoFonte]
     ) -> tuple[str, str | None]:
-        registradas = await asyncio.to_thread(self._banco.pessoas_registradas)
-        pessoas = [p for p in self._config.pessoas if p.chat_id in registradas]
+        # filtros lidos do MySQL no início da rodada: o que for salvo depois vale na próxima
+        pessoas = await asyncio.to_thread(self._banco.pessoas_ativas, self._config.autorizados)
         if not pessoas:
-            log.warning("rodada_sem_pessoas_registradas: peça /start ao bot")
+            log.warning("rodada_sem_pessoas_ativas: peça /start ao bot")
 
         for coletor in self._coletores:
             resultado = await self._coletar(coletor, pessoas)
@@ -141,20 +172,13 @@ class Rodada:
         contagens["anuncios_novos"] = await asyncio.to_thread(self._banco.salvar_anuncios, anuncios)
 
         for pessoa in pessoas:
-            contagens["enfileirados"] += await self._enfileirar_para(
-                pessoa, anuncios, registradas[pessoa.chat_id], status
-            )
+            contagens["enfileirados"] += await self._enfileirar_para(pessoa, anuncios)
+            await self._enfileirar_achados(pessoa)
         erros = [f"{r.fonte}: {r.erro}" for r in resultados if r.erro]
         return status, (erros[-1] if erros else None)
 
-    async def _enfileirar_para(
-        self, pessoa: Pessoa, anuncios: list[Anuncio], hash_anterior: str | None, status: str
-    ) -> int:
-        hash_atual = hash_filtros(pessoa.filtro)
-        modo_resumo = hash_anterior != hash_atual
-        if modo_resumo and status == "falha":
-            return 0  # resumo só com coleta confiável; tenta de novo na próxima rodada
-
+    async def _enfileirar_para(self, pessoa: Pessoa, anuncios: list[Anuncio]) -> int:
+        """Põe na fila da pessoa os imóveis novos para ela; tudo vai um a um (FR-007 da 003)."""
         ja_enviados = await asyncio.to_thread(self._banco.ja_enviados, pessoa.chat_id)
         candidatos = novos_para(pessoa, anuncios, ja_enviados)
         inseridos = set(
@@ -163,34 +187,27 @@ class Rodada:
             )
         )
         novos = [a for a in candidatos if a.chave in inseridos]
-
-        if modo_resumo:
-            partes = mensagens_resumo(novos)
-            for indice, texto in enumerate(partes):
-                ultima = indice == len(partes) - 1
-                await self._fila.enfileirar(
-                    Mensagem(
-                        chat_id=pessoa.chat_id,
-                        tipo="resumo",
-                        texto=texto,
-                        anuncio_ids=[a.chave for a in novos] if ultima else [],
-                    )
-                )
-            await asyncio.to_thread(self._banco.atualizar_filtros_hash, pessoa.chat_id, hash_atual)
-            return len(partes)
-
         for anuncio in novos:
-            contato = self._contatos.get(anuncio.chave)
-            await self._fila.enfileirar(
-                Mensagem(
-                    chat_id=pessoa.chat_id,
-                    tipo="imovel",
-                    texto=mensagem_imovel(anuncio, contato),
-                    anuncio_ids=[anuncio.chave],
-                    botoes=botoes_imovel(anuncio, contato),
-                )
+            await self._fila_pessoa.adicionar(
+                pessoa.chat_id, anuncio, self._contatos.get(anuncio.chave)
             )
+        if novos:
+            log.info("imovel_enfileirado chat_id=%s quantidade=%d", pessoa.chat_id, len(novos))
         return len(novos)
+
+    async def _enfileirar_achados(self, pessoa: Pessoa) -> None:
+        """Lembrete de achado: imóveis já entregues, até 70% do máximo (spec 004)."""
+        candidatos = await asyncio.to_thread(
+            self._banco.achados_para, pessoa.chat_id, limite_achado(pessoa.filtro)
+        )
+        quantidade = 0
+        for anuncio in candidatos:
+            if e_achado(pessoa.filtro, anuncio):  # os filtros atuais, não os da época
+                quantidade += await self._fila_pessoa.adicionar(
+                    pessoa.chat_id, anuncio, lembrete=True
+                )
+        if quantidade:
+            log.info("lembrete_enfileirado chat_id=%s quantidade=%d", pessoa.chat_id, quantidade)
 
     async def _avaliar_alerta(self, resultado: ResultadoFonte) -> None:
         fonte = resultado.fonte
@@ -213,3 +230,36 @@ class Rodada:
         await self._fila.enfileirar(
             Mensagem(chat_id=self._config.operador_chat_id, tipo="operador", texto=texto)
         )
+
+
+async def enviar_resumos(
+    banco: Banco,
+    fila: Fila,
+    gecko: ClienteGecko | None,
+    autorizados: Iterable[int],
+    momento: datetime,
+) -> int:
+    """Resumo do dia para cada pessoa ativa, uma vez por dia (research R12 da 003)."""
+    pessoas = await asyncio.to_thread(banco.pessoas_ativas, autorizados)
+    if not pessoas:
+        return 0
+    creditos = await saldo(gecko)  # uma consulta para todos; não gasta crédito
+    ultima = await asyncio.to_thread(banco.ultima_rodada)
+    proxima = proxima_rodada(momento)
+    dia = momento.astimezone(FUSO).date()
+    enviados = 0
+    for pessoa in pessoas:
+        if not await asyncio.to_thread(banco.registrar_resumo, pessoa.chat_id, dia):
+            continue
+        por_fonte = await asyncio.to_thread(banco.recebidos_por_fonte_24h, pessoa.chat_id)
+        # fora da janela de imóveis: vai direto para a entrega (FR-010)
+        await fila.enfileirar(
+            Mensagem(
+                chat_id=pessoa.chat_id,
+                tipo="resumo",
+                texto=texto_resumo(ultima, proxima, por_fonte, creditos),
+            )
+        )
+        log.info("resumo_enviado chat_id=%s", pessoa.chat_id)
+        enviados += 1
+    return enviados
