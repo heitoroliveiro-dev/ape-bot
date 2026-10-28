@@ -15,10 +15,6 @@ from apebot.modelos import (
     Tipo,
 )
 
-HORARIOS_TEXTO = ", ".join(f"{h:02d}" for h in HORARIOS_RODADA[:-1]) + (
-    f" e {HORARIOS_RODADA[-1]:02d}h"
-)
-
 
 def formatar_reais(centavos: int) -> str:
     """Sempre com centavos: R$ 3.000,00 (FR-029 da 003)."""
@@ -48,7 +44,7 @@ ORDEM_FONTES = ("quintoandar", "zap", "olx")
 def texto_ajuda(fontes_ligadas: list[str]) -> str:
     portais = ", ".join(portal(f) for f in ORDEM_FONTES if f in fontes_ligadas)
     return (
-        f"🤖 Eu procuro imóveis para alugar em BH nas rodadas das {HORARIOS_TEXTO}.\n"
+        "🤖 Eu procuro imóveis para alugar em BH que combinam com os seus filtros.\n"
         "Te mando um imóvel por vez, das 8h às 22h, começando pelos mais baratos.\n"
         "Às 23h chega um resumo do dia.\n"
         f"Portais: {portais}\n"

@@ -172,7 +172,7 @@ def test_comandos_do_menu():
 
 def test_texto_ajuda_lista_so_portais_ligados():
     assert texto_ajuda(["quintoandar", "zap"]).splitlines() == [
-        "🤖 Eu procuro imóveis para alugar em BH nas rodadas das 06, 09, 12, 15, 18, 21 e 23h.",
+        "🤖 Eu procuro imóveis para alugar em BH que combinam com os seus filtros.",
         "Te mando um imóvel por vez, das 8h às 22h, começando pelos mais baratos.",
         "Às 23h chega um resumo do dia.",
         "Portais: QuintoAndar, Zap",

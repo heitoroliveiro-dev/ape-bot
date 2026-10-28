@@ -102,8 +102,9 @@ Como na 002, com a linha `💳 Créditos` para **todas** as pessoas (mesma regra
 linha a mais: `Na sua fila: {n} imóveis (envio das 8h às 22h).`
 
 ## Ajuda (`/ajuda`)
+Sem os horários das rodadas (decisão do dono, 28/10).
 ```
-🤖 Eu procuro imóveis para alugar em BH nas rodadas das 06, 09, 12, 15, 18, 21 e 23h.
+🤖 Eu procuro imóveis para alugar em BH que combinam com os seus filtros.
 Te mando um imóvel por vez, das 8h às 22h, começando pelos mais baratos.
 Às 23h chega um resumo do dia.
 Portais: {QuintoAndar, Zap}
