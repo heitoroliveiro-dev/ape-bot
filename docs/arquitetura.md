@@ -1,8 +1,9 @@
 # ape-bot — Arquitetura (enxuta)
 
-> Versão 1.2 · 27/10/2026 · Heitor Oliveiro · Apoio: Claude
+> Versão 1.3 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > 1.1: reflete a feature `001-mvp-quintoandar-telegram` implementada (spec/plan em `specs/001-*`).
 > 1.2: feature `002-geckoapi-zap-olx-telegram` (Zap via GeckoAPI, OLX pronta e desligada, comandos no Telegram).
+> 1.3: escopo da feature `003-entrega-espacada-cadastro-telegram` (em especificação) e a justificativa em 2.1. As seções 3 a 6 continuam descrevendo o que já roda até a 003 ser entregue.
 > Substitui a v0.4 (arquivada em `docs/historico/arquitetura-v0.4-completa.md`). Foco: projeto rápido.
 
 ## 1. O que é
@@ -12,14 +13,30 @@ Robô que coleta anúncios de aluguel em Belo Horizonte, guarda no MySQL e avisa
 
 | Entra | Fica para depois |
 |---|---|
-| QuintoAndar (coletor próprio, superfícies públicas: `docs/spikes/001-fontes-de-dados.md`) | Configuração por botões no Telegram |
-| Filtro por pessoa em `filtros.yaml` (bairros, preço máximo, quartos mínimos, tipo) | Favoritos e alerta de queda de preço |
-| Aviso de imóvel novo, sem repetir | Deduplicação entre portais |
-| Rodadas às 06, 09, 12, 15, 18, 21 e 23h (America/Sao_Paulo) | Regionais da PBH |
-| Resumo na primeira rodada e aviso ao operador em falhas repetidas, por fonte | Nuvem gerenciada (Azure) |
+| QuintoAndar (coletor próprio, superfícies públicas: `docs/spikes/001-fontes-de-dados.md`) | Alerta de queda de preço |
+| Filtro por pessoa: bairros, preço máximo, quartos mínimos, tipo. **003:** guardado no MySQL; `filtros.yaml` só autoriza chats, define o operador e semeia quem ainda não tem cadastro | Deduplicação entre portais |
+| Aviso de imóvel novo, sem repetir | Cadastro aberto ao público ou aprovação de pessoas pelo Telegram |
+| Rodadas às 06, 09, 12, 15, 18, 21 e 23h (America/Sao_Paulo) | Limite diário de imóveis por pessoa |
+| Aviso ao operador em falhas repetidas, por fonte | Nuvem gerenciada (Azure) |
 | Zap via GeckoAPI (1 chamada por rodada); OLX pronta e desligada (`GECKO_FONTES`) | VivaReal (excluído: `notFound` e cobra crédito) |
 | Mensagem com portal, botões "Abrir anúncio" e "WhatsApp" e contato do anunciante em trânsito | |
 | Comandos `/ajuda`, `/filtros`, `/status`, `/pausar`, `/retomar` e menu do bot | |
+| **003:** entrega espaçada, um imóvel por mensagem a cada 2–5 min (sorteado), só das 8h às 22h, mais baratos primeiro; sai o resumo em lista | |
+| **003:** resumo diário às 23h, com recebidos por portal e créditos da GeckoAPI | |
+| **003:** cadastro pelo `/start` e edição pelo `/filtros`, com botões; bairros escolhidos por regional da PBH | |
+| **003:** favoritos (botão na mensagem e `/favoritos`) | |
+
+### 2.1 Por que a 003 traz itens que estavam "para depois"
+
+A v1.2 deixava para depois a configuração por botões, os favoritos e as regionais da PBH. A 003 traz os três (princípio I da constituição: o escopo é o desta tabela, e a mudança fica registrada aqui):
+
+- **Volume.** Com o Zap, uma rodada passou a render dezenas de imóveis por pessoa (64 só do QuintoAndar na primeira rodada de um filtro). O resumo em lista com tudo de uma vez não é lido. Mandar um por vez, espaçado e só em horário comercial, faz cada imóvel ser avaliado; isso não exige peça nova, só a fila passar a ter uma vez por pessoa.
+- **Dependência do operador.** Toda mudança de filtro passava por editar o `filtros.yaml` e reiniciar o robô. A edição pelo Telegram é a interação mais frequente depois de receber imóveis, e tirar o operador do caminho é o que deixa o robô usável por outras pessoas da família.
+- **Regionais.** Elas deixam de ser um fim e viram o meio de escolher bairro: 289 bairros não cabem numa lista de botões, e as 9 regionais quebram a escolha em grupos de tamanho razoável. A tabela bairro → regional é fixa e versionada, gerada uma vez a partir da relação oficial de bairros por regional da Prefeitura; o robô não consulta a Prefeitura em funcionamento.
+- **Favoritos.** Com um imóvel por mensagem, guardar os que interessam custa um botão e uma tabela, e substitui rolar a conversa atrás de um anúncio.
+- **Resumo diário.** Com a entrega espalhada pelo dia, a pessoa perde a noção do volume; um resumo às 23h devolve essa visão sem a lista em bloco.
+
+O acesso continua em lista fechada (princípio IV), e o gasto da GeckoAPI não muda: a chamada por portal continua sendo uma por rodada, com os filtros somados das pessoas ativas. O contato do anunciante pode passar mais tempo na fila Redis até ser entregue, mas continua sem ir ao MySQL (princípio III).
 
 **Fora de vez:** anti-captcha e qualquer contorno de Cloudflare ou de outra proteção antirrobô feito pelo próprio robô.
 
@@ -91,3 +108,4 @@ Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet) e **
 2. Ler os termos de uso do QuintoAndar.
 3. Onde roda: máquina própria, VPS barata ou VM na nuvem. O Docker Compose funciona em qualquer uma.
 4. GeckoAPI (teste no Playground em 27/10/2026, 6 créditos): VivaReal devolveu `notFound` para aluguel em BH; Zap funciona (22.060 imóveis, 30 por página), mas não ordena por data nem informa data de publicação, e traz `advertiser` com telefones; OLX ordena por data (`listedAt`), mas ignorou a localização, por campos e por URL, e devolveu 50 itens de fora de MG. Nenhum portal atende ainda ao modelo "1 chamada por rodada". As duas respostas estão em `resposta_fonte`; fixtures cortadas em `tests/fixtures/geckoapi/`. Próximo passo: chamado no suporte da GeckoAPI sobre OLX/VivaReal antes de comprar o refil.
+5. Tabela bairro → regional (003): fonte é o PDF da PBH "Relação de bairros, regionais e territórios de gestão compartilhada" (487 bairros, 9 regionais, sem Hipercentro; cópia em `docs/referencias/pbh-bairros-regionais.pdf`), baixado pelo navegador (o portal bloqueia acesso automatizado). 240 dos 289 bairros do catálogo batem direto pelo nome; os demais são resolvidos por apelido, revisados à mão ou saem do catálogo (6 não são de BH).
