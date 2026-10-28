@@ -1,8 +1,10 @@
-"""Bot do Telegram: whitelist, comandos e worker que entrega a fila (R7 da 001, R10 da 002)."""
+"""Bot do Telegram: whitelist, comandos, despachante e entregador (R10 da 002, R2 da 003)."""
 
 import asyncio
 import logging
+import random
 import time
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 import redis.exceptions
@@ -21,7 +23,8 @@ from telegram.ext import (
 
 from apebot.banco import Banco
 from apebot.config import Configuracao
-from apebot.fila import Fila, Mensagem
+from apebot.fila import Fila, FilaPessoa, Mensagem
+from apebot.filtro import aceita
 from apebot.fontes.geckoapi import ClienteGecko, ErroGecko
 from apebot.mensagens import (
     SEM_FILTROS,
@@ -43,7 +46,8 @@ log = logging.getLogger(__name__)
 INTERVALO_POR_CHAT = 1.1
 INTERVALO_GLOBAL = 0.05
 MAX_TENTATIVAS = 3
-PENDENTE_ANTIGO_MINUTOS = 10
+JANELA_ENTREGA = (8, 22)  # horas em America/Sao_Paulo: de 08:00 a 21:59 (FR-003 da 003)
+VOLTA_DESPACHANTE_SEGUNDOS = 20
 SEM_PREVIA = LinkPreviewOptions(is_disabled=True)
 
 
@@ -51,6 +55,7 @@ def registrar_handlers(
     app: Application,
     config: Configuracao,
     banco: Banco,
+    fila_pessoa: FilaPessoa,
     fontes_ligadas: list[str],
     gecko: ClienteGecko | None = None,
 ) -> None:
@@ -119,6 +124,9 @@ def registrar_handlers(
             await responder(update, SEM_FILTROS)
             return
         await asyncio.to_thread(banco.pausar, chat_id)
+        # os imóveis que não saíram voltam a ser candidatos depois do /retomar (research R4)
+        await fila_pessoa.limpar(chat_id)
+        await asyncio.to_thread(banco.apagar_pendentes, chat_id)
         log.info("avisos_pausados chat_id=%s", chat_id)
         await responder(update, TEXTO_PAUSADO)
 
@@ -157,6 +165,121 @@ def _teclado(linhas: list[list[dict[str, str]]]) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup([[_botao(b) for b in linha] for linha in linhas])
 
 
+def dentro_da_janela(momento: datetime) -> bool:
+    inicio, fim = JANELA_ENTREGA
+    return inicio <= momento.astimezone(FUSO).hour < fim
+
+
+def sortear_intervalo(intervalo: tuple[int, int], aleatorio: random.Random) -> int:
+    return aleatorio.randint(*intervalo)
+
+
+Chave = tuple[str, str]
+
+
+def faltando_na_fila(
+    pendentes: Iterable[Chave], na_fila: set[Chave], em_entrega: set[Chave]
+) -> set[Chave]:
+    return set(pendentes) - na_fila - em_entrega
+
+
+class Despachante:
+    """Tira um imóvel por pessoa da fila dela, no ritmo sorteado, e põe na fila de entrega."""
+
+    def __init__(
+        self,
+        fila: Fila,
+        fila_pessoa: FilaPessoa,
+        banco: Banco,
+        autorizados: Iterable[int],
+        intervalo: tuple[int, int],
+        aleatorio: random.Random | None = None,
+    ) -> None:
+        self._fila = fila
+        self._fila_pessoa = fila_pessoa
+        self._banco = banco
+        self._autorizados = set(autorizados)
+        self._intervalo = intervalo
+        self._aleatorio = aleatorio or random.Random()
+
+    async def reconciliar(self) -> None:
+        """Recoloca na fila da pessoa os pendentes que se perderam num reinício (research R3)."""
+        pessoas = await asyncio.to_thread(self._banco.pessoas_ativas, self._autorizados)
+        em_entrega = await self._fila.chaves_em_entrega()
+        for pessoa in pessoas:
+            pendentes = await asyncio.to_thread(self._banco.pendentes_de, pessoa.chat_id)
+            por_chave = {a.chave: a for a in pendentes}
+            faltando = faltando_na_fila(
+                por_chave,
+                await self._fila_pessoa.membros(pessoa.chat_id),
+                {(f, i) for c, f, i in em_entrega if c == pessoa.chat_id},
+            )
+            for chave in faltando:  # do banco: sem contato
+                await self._fila_pessoa.adicionar(pessoa.chat_id, por_chave[chave])
+            if faltando:
+                log.info("reconciliacao chat_id=%s recolocados=%d", pessoa.chat_id, len(faltando))
+
+    async def uma_volta(self, agora: datetime) -> None:
+        if not dentro_da_janela(agora):
+            return
+        pessoas = await asyncio.to_thread(self._banco.pessoas_ativas, self._autorizados)
+        for pessoa in pessoas:
+            try:
+                await self._despachar(pessoa, agora)
+            except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):
+                raise
+            except Exception:  # uma pessoa com problema não para as outras
+                log.exception("despacho_erro chat_id=%s", pessoa.chat_id)
+
+    async def _despachar(self, pessoa, agora: datetime) -> None:
+        chat_id = pessoa.chat_id
+        proximo = await self._fila_pessoa.proximo(chat_id)
+        if proximo is not None and agora.timestamp() < proximo:
+            return
+        while (item := await self._fila_pessoa.retirar_mais_barato(chat_id)) is not None:
+            anuncio, contato = item
+            if not aceita(pessoa.filtro, anuncio):  # filtros mudaram depois que entrou (FR-006)
+                await asyncio.to_thread(self._banco.apagar_pendente, chat_id, anuncio.chave)
+                log.info("imovel_descartado_filtro chat_id=%s", chat_id)
+                continue
+            await self._fila.enfileirar(
+                Mensagem(
+                    chat_id=chat_id,
+                    tipo="imovel",
+                    texto=mensagem_imovel(anuncio, contato),
+                    anuncio_ids=[anuncio.chave],
+                    botoes=botoes_imovel(anuncio, contato),
+                )
+            )
+            espera = sortear_intervalo(self._intervalo, self._aleatorio)
+            await self._fila_pessoa.marcar_proximo(chat_id, agora.timestamp() + espera)
+            log.info("imovel_despachado chat_id=%s proximo_em=%ds", chat_id, espera)
+            return
+
+    async def executar(self) -> None:
+        while True:
+            try:
+                await self.reconciliar()
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("reconciliacao_erro")
+                await asyncio.sleep(5)
+        while True:
+            try:
+                await self.uma_volta(datetime.now(FUSO))
+                await asyncio.sleep(VOLTA_DESPACHANTE_SEGUNDOS)
+            except asyncio.CancelledError:
+                raise
+            except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError) as erro:
+                log.warning("fila_indisponivel erro=%s", erro)
+                await asyncio.sleep(5)
+            except Exception:
+                log.exception("despachante_erro")
+                await asyncio.sleep(5)
+
+
 class Entregador:
     """Consome a fila e entrega no Telegram respeitando o limite de taxa."""
 
@@ -166,25 +289,7 @@ class Entregador:
         self._banco = banco
         self._ultimo_envio: dict[int, float] = {}
 
-    async def reenfileirar_pendentes(self) -> None:
-        if await self._fila.tamanho():
-            return  # a fila persistida ainda tem as mensagens; não duplicar
-        pendentes = await asyncio.to_thread(self._banco.pendentes_antigos, PENDENTE_ANTIGO_MINUTOS)
-        for chat_id, anuncio in pendentes:
-            await self._fila.enfileirar(
-                Mensagem(
-                    chat_id=chat_id,
-                    tipo="imovel",
-                    texto=mensagem_imovel(anuncio),  # sem contato: ele não fica no banco
-                    anuncio_ids=[anuncio.chave],
-                    botoes=botoes_imovel(anuncio),
-                )
-            )
-        if pendentes:
-            log.info("pendentes_reenfileirados quantidade=%d", len(pendentes))
-
     async def executar(self) -> None:
-        await self.reenfileirar_pendentes()
         while True:
             try:
                 mensagem = await self._fila.consumir()

@@ -19,14 +19,14 @@ from apebot.config import (
     problemas_entrega,
     problemas_gecko,
 )
-from apebot.fila import Fila, Mensagem
+from apebot.fila import Fila, FilaPessoa, Mensagem
 from apebot.fontes import olx, quintoandar, zap
 from apebot.fontes.geckoapi import ClienteGecko
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.mensagens import COMANDOS, aviso_configuracao
 from apebot.modelos import FUSO, HORARIOS_RODADA, Pessoa
 from apebot.rodada import Coletor, Rodada
-from apebot.telegram_bot import Entregador, registrar_handlers
+from apebot.telegram_bot import Despachante, Entregador, registrar_handlers
 
 log = logging.getLogger("apebot")
 
@@ -107,19 +107,27 @@ async def _rodada_agora(
         )
         return
     fila = Fila(segredos.redis_url)
+    fila_pessoa = FilaPessoa(fila)
     try:
-        status = await Rodada(banco, fila, config, fontes.coletores).executar()
+        status = await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
         log.info("rodada_manual status=%s; aguardando o bot entregar a fila", status)
         limite = time.monotonic() + ESPERA_FILA_MAX_SEGUNDOS
         while await fila.tamanho() and time.monotonic() < limite:
             await asyncio.sleep(2)
         log.info("rodada_manual_fim fila_restante=%d", await fila.tamanho())
+        ativas = await asyncio.to_thread(banco.pessoas_ativas, config.autorizados)
+        na_fila = sum([await fila_pessoa.tamanho(p.chat_id) for p in ativas])
+        print(
+            f"Imóveis na fila das pessoas: {na_fila}. O bot entrega um por vez, das 8h às 22h.",
+            flush=True,
+        )
     finally:
         await fila.fechar()
 
 
 def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes) -> None:
     fila = Fila(segredos.redis_url)
+    fila_pessoa = FilaPessoa(fila)
     tarefas: list[asyncio.Task] = []
 
     async def ao_iniciar(app: Application) -> None:
@@ -133,6 +141,10 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
             )
         await app.bot.set_my_commands(COMANDOS)
         tarefas.append(asyncio.create_task(Entregador(app, fila, banco).executar()))
+        despachante = Despachante(
+            fila, fila_pessoa, banco, config.autorizados, segredos.entrega_intervalo
+        )
+        tarefas.append(asyncio.create_task(despachante.executar()))
 
     async def ao_encerrar(_: Application) -> None:
         for tarefa in tarefas:
@@ -140,7 +152,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
         await fila.fechar()
 
     async def rodada_agendada(_: ContextTypes.DEFAULT_TYPE) -> None:
-        await Rodada(banco, fila, config, fontes.coletores).executar()
+        await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
 
     app = (
         Application.builder()
@@ -149,7 +161,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
         .post_shutdown(ao_encerrar)
         .build()
     )
-    registrar_handlers(app, config, banco, fontes.ligadas, fontes.gecko)
+    registrar_handlers(app, config, banco, fila_pessoa, fontes.ligadas, fontes.gecko)
     for hora in HORARIOS_RODADA:
         app.job_queue.run_daily(
             rodada_agendada,

@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 
 from apebot.config import Configuracao, bairros_validos
-from apebot.filtro import hash_filtros
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.fontes.zap import extrair_zap
 from apebot.modelos import Filtro, Pessoa, Tipo
 from apebot.rodada import Coletor, Rodada, decidir_alerta, status_rodada
+from tests.test_despacho import FilaPessoaFalsa
 
 
 @pytest.mark.parametrize(
@@ -81,9 +81,6 @@ class BancoFalso:
     def pessoas_ativas(self, autorizados):
         return [PESSOA]
 
-    def pessoas_registradas(self):
-        return {PESSOA.chat_id: hash_filtros(PESSOA.filtro)}  # já passou da primeira rodada
-
     def registrar_fonte(self, rodada_id, resultado):
         self.fontes.append((resultado.fonte, resultado.status))
 
@@ -92,13 +89,12 @@ class BancoFalso:
         return len(anuncios)
 
     def ja_enviados(self, chat_id):
-        return set()
+        return set(self.envios)
 
     def criar_envios_pendentes(self, chat_id, chaves):
-        return list(chaves)
-
-    def atualizar_filtros_hash(self, *args):
-        pass
+        novas = [c for c in chaves if c not in self.envios]
+        self.envios.update(novas)
+        return novas
 
     def alerta_aberto(self, fonte):
         return None
@@ -115,11 +111,12 @@ class FilaFalsa:
         self.mensagens.append(mensagem)
 
 
-def _rodar(coletores):
-    banco, fila = BancoFalso(), FilaFalsa()
+def _rodar(coletores, banco=None, fila_pessoa=None):
+    banco, fila = banco or BancoFalso(), FilaFalsa()
+    fila_pessoa = fila_pessoa or FilaPessoaFalsa()
     config = Configuracao(operador_chat_id=PESSOA.chat_id, autorizados={PESSOA.chat_id: None})
-    status = asyncio.run(Rodada(banco, fila, config, coletores).executar())
-    return status, banco, fila
+    status = asyncio.run(Rodada(banco, fila, fila_pessoa, config, coletores).executar())
+    return status, banco, fila, fila_pessoa
 
 
 async def _quintoandar_vazio(pessoas):
@@ -132,29 +129,39 @@ async def _zap_da_fixture(pessoas):
     return resultado
 
 
-def test_rodada_entrega_zap_com_contato_e_botoes_sem_gravar_anunciante():
-    status, banco, fila = _rodar(
+def test_rodada_coloca_cada_imovel_na_fila_da_pessoa_com_contato():
+    status, banco, fila, fila_pessoa = _rodar(
         [Coletor("quintoandar", _quintoandar_vazio), Coletor("zap", _zap_da_fixture)]
     )
 
     assert status == "ok"
     assert banco.fontes == [("quintoandar", "ok"), ("zap", "ok")]
-    imoveis = [m for m in fila.mensagens if m.tipo == "imovel"]
-    assert len(imoveis) == 3  # Gutierrez, Funcionários (casa) e Buritis
-    primeira = imoveis[0]
-    assert primeira.texto.startswith("🏠 Apartamento · Gutierrez · Zap")
-    assert "👤 Imobiliária Fictícia" in primeira.texto
-    assert primeira.botoes == [
-        [
-            {
-                "t": "Abrir anúncio",
-                "u": "https://www.zapimoveis.com.br/imovel/aluguel-apartamento-2-quartos-com-piscina-gutierrez-belo-horizonte-mg-80m2-id-2919519749/",
-            },
-            {"t": "WhatsApp", "u": "https://wa.me/5531900000000"},
-        ]
-    ]
+    assert [m for m in fila.mensagens if m.tipo in ("imovel", "resumo")] == []  # nada em bloco
+    na_fila = fila_pessoa.itens[PESSOA.chat_id]
+    assert len(na_fila) == 3  # Gutierrez, Funcionários (casa) e Buritis
+    contatos = [c for _, c in na_fila.values() if c is not None]
+    assert any(c.nome == "Imobiliária Fictícia" for c in contatos)
     gravado = json.dumps(banco.gravado, ensure_ascii=False, default=str)
     assert "Imobiliária Fictícia" not in gravado and "3100000000" not in gravado
+
+
+def test_imovel_ja_decidido_nao_volta_para_a_fila():
+    banco = BancoFalso()
+    _rodar([Coletor("zap", _zap_da_fixture)], banco=banco)
+    fila_pessoa = FilaPessoaFalsa()
+    _rodar([Coletor("zap", _zap_da_fixture)], banco=banco, fila_pessoa=fila_pessoa)
+    assert fila_pessoa.itens == {}
+
+
+def test_rodada_com_falha_tambem_enfileira():
+    async def quintoandar_falhou(pessoas):
+        return ResultadoFonte(fonte="quintoandar", status="falha", consultas=2, erro="acesso")
+
+    status, _, _, fila_pessoa = _rodar(
+        [Coletor("quintoandar", quintoandar_falhou), Coletor("zap", _zap_da_fixture)]
+    )
+    assert status == "falha"
+    assert len(fila_pessoa.itens[PESSOA.chat_id]) == 3
 
 
 async def _zap_quebrado(pessoas):
@@ -162,7 +169,7 @@ async def _zap_quebrado(pessoas):
 
 
 def test_falha_do_zap_nao_derruba_o_quintoandar():
-    status, banco, fila = _rodar(
+    status, banco, _, _ = _rodar(
         [Coletor("quintoandar", _quintoandar_vazio), Coletor("zap", _zap_quebrado)]
     )
     assert status == "ok"  # o status da rodada vem do QuintoAndar
@@ -174,7 +181,7 @@ async def _zap_sem_credito(pessoas):
 
 
 def test_sem_credito_avisa_o_operador_na_hora():
-    _, banco, fila = _rodar(
+    _, banco, fila, _ = _rodar(
         [Coletor("quintoandar", _quintoandar_vazio), Coletor("zap", _zap_sem_credito)]
     )
     operador = [m for m in fila.mensagens if m.tipo == "operador"]

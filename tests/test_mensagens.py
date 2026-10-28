@@ -14,7 +14,6 @@ from apebot.mensagens import (
     confirmacao_start,
     formatar_reais,
     mensagem_imovel,
-    mensagens_resumo,
     proxima_rodada,
     resposta_padrao,
     texto_ajuda,
@@ -68,10 +67,20 @@ ANUNCIO = Anuncio(
 
 def test_mensagem_imovel():
     assert mensagem_imovel(ANUNCIO) == (
-        "🏠 Apartamento · Buritis · QuintoAndar\n"
-        "2 quartos · 70 m²\n"
-        "Aluguel: R$ 2.700,00 · Total: R$ 3.468,00"
+        "Veja o imóvel que encontrei:\n"
+        "2 quartos no bairro Buritis\n"
+        "Valor: R$ 2.700,00\n"
+        "Link: https://www.quintoandar.com.br/imovel/1"
     )
+
+
+def test_mensagem_imovel_bairro_do_catalogo_e_singular():
+    um_quarto = replace(ANUNCIO, quartos=1, bairro="alto caicaras", bairro_slug="alto-caicaras")
+    assert "1 quarto no bairro Alto Caiçaras\n" in mensagem_imovel(um_quarto)
+    kitnet = replace(ANUNCIO, tipo=Tipo.KITNET, quartos=0, aluguel_centavos=245_050)
+    texto = mensagem_imovel(kitnet)
+    assert "Kitnet/Studio no bairro Buritis\n" in texto
+    assert "Valor: R$ 2.450,50" in texto
 
 
 ZAP = replace(
@@ -91,9 +100,10 @@ CONTATO = Contato(
 
 def test_mensagem_imovel_com_contato():
     assert mensagem_imovel(ZAP, CONTATO) == (
-        "🏠 Apartamento · Gutierrez · Zap\n"
-        "2 quartos · 70 m²\n"
-        "Aluguel: R$ 2.700,00 · Total: R$ 3.468,00\n"
+        "Veja o imóvel que encontrei:\n"
+        "2 quartos no bairro Gutierrez\n"
+        "Valor: R$ 2.700,00\n"
+        f"Link: {ZAP.url}\n"
         "👤 Imobiliária &lt;Teste&gt; &amp; Cia\n"
         "📞 (31) 98298-4510"
     )
@@ -105,72 +115,30 @@ def test_mensagem_imovel_com_contato_parcial():
     assert texto.endswith("📞 3100000000")
 
 
+FAVORITO = {"t": "⭐ Salvar como favorito", "c": "f:zap:2919519749"}
+
+
 def test_botoes_imovel():
     abrir = {"t": "Abrir anúncio", "u": ZAP.url}
-    assert botoes_imovel(ZAP) == [[abrir]]
+    assert botoes_imovel(ZAP) == [[abrir], [FAVORITO]]
     assert botoes_imovel(ZAP, CONTATO) == [
-        [abrir, {"t": "WhatsApp", "u": "https://wa.me/5531982984510"}]
+        [abrir, {"t": "WhatsApp", "u": "https://wa.me/5531982984510"}],
+        [FAVORITO],
     ]
     sem_whats = Contato(nome="X", telefone="31982984510", whatsapp_url=None)
-    assert botoes_imovel(ZAP, sem_whats) == [[abrir]]
+    assert botoes_imovel(ZAP, sem_whats) == [[abrir], [FAVORITO]]
 
 
-def test_mensagem_imovel_com_campos_ausentes():
-    texto = mensagem_imovel(replace(ANUNCIO, area_m2=None, total_centavos=None))
-    assert "2 quartos · não informado" in texto
-    assert "Total: não informado" in texto
+def test_callback_de_favorito_cabe_no_limite_do_telegram():
+    maior = replace(ZAP, fonte="quintoandar", id_externo="x" * 40)
+    (favorito,) = botoes_imovel(maior)[-1]
+    assert len(favorito["c"].encode()) <= 64
 
 
 def test_resposta_padrao():
     assert resposta_padrao() == (
         "Eu aviso os imóveis às 06, 09, 12, 15, 18, 21 e 23h. Envie /ajuda para ver os comandos."
     )
-
-
-def _anuncios(n):
-    return [
-        replace(
-            ANUNCIO, id_externo=str(i), url=f"https://www.quintoandar.com.br/imovel/{900000000 + i}"
-        )
-        for i in range(n)
-    ]
-
-
-def test_resumo_sem_resultados():
-    assert mensagens_resumo([]) == [
-        "Ainda não achei imóveis com os seus filtros. Continuo procurando."
-    ]
-
-
-def test_resumo_com_40_imoveis():
-    partes = mensagens_resumo(_anuncios(40))
-    texto = "\n".join(partes)
-    assert partes[0].startswith("Encontrei 40 imóveis com os seus filtros:")
-    assert texto.count("\n• ") + texto.count("• ") >= 40
-    assert (
-        texto.count(
-            "Buritis · 2q · R$ 2.700,00 · QuintoAndar · https://www.quintoandar.com.br/imovel/"
-        )
-        == 40
-    )
-    assert "(+" not in texto
-
-
-def test_resumo_grande_limitado_a_5_partes():
-    partes = mensagens_resumo(_anuncios(200))
-    assert 1 <= len(partes) <= 5
-    assert all(len(p) <= 4000 for p in partes)
-    linhas = "\n".join(partes).count("• ")
-    if linhas < 200:
-        assert partes[-1].rstrip().endswith(f"(+{200 - linhas} imóveis)")
-
-
-def test_resumo_enorme_corta_com_contagem():
-    partes = mensagens_resumo(_anuncios(1000))
-    assert len(partes) == 5
-    assert all(len(p) <= 4000 for p in partes)
-    linhas = "\n".join(partes).count("• ")
-    assert partes[-1].rstrip().endswith(f"(+{1000 - linhas} imóveis)")
 
 
 def test_aviso_falha():
@@ -227,7 +195,7 @@ def test_confirmacao_start_pausada():
 def test_textos_de_pausa():
     assert TEXTO_PAUSADO == "⏸️ Avisos pausados. Use /retomar quando quiser voltar."
     assert TEXTO_RETOMADO == (
-        "▶️ Avisos retomados. Na próxima rodada eu te mando um resumo do que estiver disponível."
+        "▶️ Avisos retomados. Na próxima rodada eu volto a te mandar o que encontrar."
     )
 
 

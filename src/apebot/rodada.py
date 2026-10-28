@@ -1,7 +1,8 @@
-"""Uma rodada: coleta por fonte → banco → filtro → fila → registro e alerta.
+"""Uma rodada: coleta por fonte → banco → filtro → fila de cada pessoa → registro e alerta.
 
-Research R9/R10 da 001 e R7/R8 da 002: cada fonte é coletada isoladamente e registrada em
-rodada_fonte; o alerta é por fonte; o contato do anunciante só vive em memória e na fila.
+Research R9/R10 da 001, R7/R8 da 002 e R4 da 003: cada fonte é coletada isoladamente e registrada
+em rodada_fonte; o alerta é por fonte; a rodada não manda imóvel, só põe na fila da pessoa (o
+despachante entrega um por vez); o contato do anunciante só vive em memória e nas filas Redis.
 """
 
 import asyncio
@@ -13,16 +14,10 @@ from datetime import datetime, timedelta
 
 from apebot.banco import Banco, agora
 from apebot.config import Configuracao
-from apebot.fila import Fila, Mensagem
-from apebot.filtro import hash_filtros, novos_para
+from apebot.fila import Fila, FilaPessoa, Mensagem
+from apebot.filtro import novos_para
 from apebot.fontes.resultado import ResultadoFonte, status_rodada
-from apebot.mensagens import (
-    aviso_falha,
-    aviso_recuperacao,
-    botoes_imovel,
-    mensagem_imovel,
-    mensagens_resumo,
-)
+from apebot.mensagens import aviso_falha, aviso_recuperacao
 from apebot.modelos import FUSO, Anuncio, Contato, Pessoa
 
 __all__ = ["Coletor", "Rodada", "decidir_alerta", "status_rodada"]
@@ -56,10 +51,16 @@ def decidir_alerta(
 
 class Rodada:
     def __init__(
-        self, banco: Banco, fila: Fila, config: Configuracao, coletores: list[Coletor]
+        self,
+        banco: Banco,
+        fila: Fila,
+        fila_pessoa: FilaPessoa,
+        config: Configuracao,
+        coletores: list[Coletor],
     ) -> None:
         self._banco = banco
         self._fila = fila
+        self._fila_pessoa = fila_pessoa
         self._config = config
         self._coletores = coletores
         self._contatos: dict[Chave, Contato] = {}
@@ -107,7 +108,6 @@ class Rodada:
     ) -> tuple[str, str | None]:
         # filtros lidos do MySQL no início da rodada: o que for salvo depois vale na próxima
         pessoas = await asyncio.to_thread(self._banco.pessoas_ativas, self._config.autorizados)
-        registradas = await asyncio.to_thread(self._banco.pessoas_registradas)
         if not pessoas:
             log.warning("rodada_sem_pessoas_ativas: peça /start ao bot")
 
@@ -142,20 +142,12 @@ class Rodada:
         contagens["anuncios_novos"] = await asyncio.to_thread(self._banco.salvar_anuncios, anuncios)
 
         for pessoa in pessoas:
-            contagens["enfileirados"] += await self._enfileirar_para(
-                pessoa, anuncios, registradas.get(pessoa.chat_id), status
-            )
+            contagens["enfileirados"] += await self._enfileirar_para(pessoa, anuncios)
         erros = [f"{r.fonte}: {r.erro}" for r in resultados if r.erro]
         return status, (erros[-1] if erros else None)
 
-    async def _enfileirar_para(
-        self, pessoa: Pessoa, anuncios: list[Anuncio], hash_anterior: str | None, status: str
-    ) -> int:
-        hash_atual = hash_filtros(pessoa.filtro)
-        modo_resumo = hash_anterior != hash_atual
-        if modo_resumo and status == "falha":
-            return 0  # resumo só com coleta confiável; tenta de novo na próxima rodada
-
+    async def _enfileirar_para(self, pessoa: Pessoa, anuncios: list[Anuncio]) -> int:
+        """Põe na fila da pessoa os imóveis novos para ela; tudo vai um a um (FR-007 da 003)."""
         ja_enviados = await asyncio.to_thread(self._banco.ja_enviados, pessoa.chat_id)
         candidatos = novos_para(pessoa, anuncios, ja_enviados)
         inseridos = set(
@@ -164,33 +156,12 @@ class Rodada:
             )
         )
         novos = [a for a in candidatos if a.chave in inseridos]
-
-        if modo_resumo:
-            partes = mensagens_resumo(novos)
-            for indice, texto in enumerate(partes):
-                ultima = indice == len(partes) - 1
-                await self._fila.enfileirar(
-                    Mensagem(
-                        chat_id=pessoa.chat_id,
-                        tipo="resumo",
-                        texto=texto,
-                        anuncio_ids=[a.chave for a in novos] if ultima else [],
-                    )
-                )
-            await asyncio.to_thread(self._banco.atualizar_filtros_hash, pessoa.chat_id, hash_atual)
-            return len(partes)
-
         for anuncio in novos:
-            contato = self._contatos.get(anuncio.chave)
-            await self._fila.enfileirar(
-                Mensagem(
-                    chat_id=pessoa.chat_id,
-                    tipo="imovel",
-                    texto=mensagem_imovel(anuncio, contato),
-                    anuncio_ids=[anuncio.chave],
-                    botoes=botoes_imovel(anuncio, contato),
-                )
+            await self._fila_pessoa.adicionar(
+                pessoa.chat_id, anuncio, self._contatos.get(anuncio.chave)
             )
+        if novos:
+            log.info("imovel_enfileirado chat_id=%s quantidade=%d", pessoa.chat_id, len(novos))
         return len(novos)
 
     async def _avaliar_alerta(self, resultado: ResultadoFonte) -> None:

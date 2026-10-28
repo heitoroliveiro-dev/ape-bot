@@ -1,5 +1,3 @@
-import hashlib
-import json
 from collections.abc import Iterable
 
 from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
@@ -44,19 +42,6 @@ def filtros_somados(pessoas: Iterable[Pessoa]) -> Filtro | None:
         quartos_min=min(f.quartos_min for f in filtros),
         tipos=frozenset().union(*(f.tipos for f in filtros)),
     )
-
-
-def hash_filtros(filtro: Filtro) -> str:
-    canonico = json.dumps(
-        {
-            "bairros": sorted(filtro.bairros),
-            "aluguel_max_centavos": filtro.aluguel_max_centavos,
-            "quartos_min": filtro.quartos_min,
-            "tipos": sorted(t.value for t in filtro.tipos),
-        },
-        sort_keys=True,
-    )
-    return hashlib.sha256(canonico.encode()).hexdigest()
 
 
 def filtro_para_json(filtro: Filtro) -> dict:

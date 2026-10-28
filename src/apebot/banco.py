@@ -159,15 +159,6 @@ class Banco:
                 (agora(), chat_id),
             )
 
-    def pessoas_registradas(self) -> dict[int, str | None]:
-        """chat_id → filtros_hash das pessoas que já enviaram /start e não estão pausadas."""
-        with self._cursor() as c:
-            c.execute(
-                "SELECT chat_id, filtros_hash FROM pessoa"
-                " WHERE registrada_em IS NOT NULL AND pausada_em IS NULL"
-            )
-            return {chat_id: filtros_hash for chat_id, filtros_hash in c.fetchall()}
-
     def pausar(self, chat_id: int) -> None:
         with self._cursor() as c:
             c.execute(
@@ -176,11 +167,9 @@ class Banco:
             )
 
     def retomar(self, chat_id: int) -> None:
-        """Limpar o filtros_hash faz a próxima rodada mandar um resumo (research R9 da 002)."""
         with self._cursor() as c:
             c.execute(
-                "UPDATE pessoa SET pausada_em = NULL, filtros_hash = NULL"
-                " WHERE chat_id = %s AND pausada_em IS NOT NULL",
+                "UPDATE pessoa SET pausada_em = NULL WHERE chat_id = %s AND pausada_em IS NOT NULL",
                 (chat_id,),
             )
 
@@ -189,12 +178,6 @@ class Banco:
             c.execute("SELECT pausada_em FROM pessoa WHERE chat_id = %s", (chat_id,))
             linha = c.fetchone()
             return linha[0] if linha else None
-
-    def atualizar_filtros_hash(self, chat_id: int, filtros_hash: str) -> None:
-        with self._cursor() as c:
-            c.execute(
-                "UPDATE pessoa SET filtros_hash = %s WHERE chat_id = %s", (filtros_hash, chat_id)
-            )
 
     # anúncios --------------------------------------------------------------
 
@@ -285,17 +268,30 @@ class Banco:
                     (status, entregue_em, chat_id, fonte, id_externo),
                 )
 
-    def pendentes_antigos(self, minutos: int) -> list[tuple[int, Anuncio]]:
-        limite = agora() - timedelta(minutes=minutos)
+    def pendentes_de(self, chat_id: int) -> list[Anuncio]:
+        """Imóveis decididos para a pessoa e ainda não entregues (reconciliação, research R3)."""
         with self._cursor() as c:
             c.execute(
-                "SELECT e.chat_id, a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug,"
-                " a.quartos, a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
                 " FROM envio e JOIN anuncio a USING (fonte, id_externo)"
-                " WHERE e.status = 'pendente' AND e.criado_em < %s",
-                (limite,),
+                " WHERE e.chat_id = %s AND e.status = 'pendente'",
+                (chat_id,),
             )
-            return [(linha[0], _anuncio(linha[1:])) for linha in c.fetchall()]
+            return [_anuncio(linha) for linha in c.fetchall()]
+
+    def apagar_pendente(self, chat_id: int, chave: Chave) -> None:
+        """O imóvel volta a ser candidato numa rodada futura (descartado por filtro)."""
+        with self._cursor() as c:
+            c.execute(
+                "DELETE FROM envio WHERE chat_id = %s AND fonte = %s AND id_externo = %s"
+                " AND status = 'pendente'",
+                (chat_id, *chave),
+            )
+
+    def apagar_pendentes(self, chat_id: int) -> None:
+        with self._cursor() as c:
+            c.execute("DELETE FROM envio WHERE chat_id = %s AND status = 'pendente'", (chat_id,))
 
     # rodadas e alertas -----------------------------------------------------
 

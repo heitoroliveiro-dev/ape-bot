@@ -51,9 +51,7 @@ COMANDOS = [
     ("retomar", "Voltar a receber avisos"),
 ]
 TEXTO_PAUSADO = "⏸️ Avisos pausados. Use /retomar quando quiser voltar."
-TEXTO_RETOMADO = (
-    "▶️ Avisos retomados. Na próxima rodada eu te mando um resumo do que estiver disponível."
-)
+TEXTO_RETOMADO = "▶️ Avisos retomados. Na próxima rodada eu volto a te mandar o que encontrar."
 SEM_FILTROS = "Você está sem filtros válidos."
 ORDEM_FONTES = ("quintoandar", "zap", "olx")
 
@@ -133,21 +131,25 @@ def texto_status(
     return "\n".join(linhas)
 
 
-NAO_INFORMADO = "não informado"
-
-
 def portal(fonte: str) -> str:
     return NOMES_FONTE.get(fonte, fonte)
 
 
+def _quartos_no_bairro(anuncio: Anuncio) -> str:
+    bairro = escape(nome_bairro(anuncio.bairro_slug))
+    if anuncio.quartos == 0:
+        return f"{anuncio.tipo.rotulo} no bairro {bairro}"
+    plural = "quarto" if anuncio.quartos == 1 else "quartos"
+    return f"{anuncio.quartos} {plural} no bairro {bairro}"
+
+
 def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
-    """O link vai no botão "Abrir anúncio" (botoes_imovel), não no texto."""
-    area = f"{anuncio.area_m2} m²" if anuncio.area_m2 else NAO_INFORMADO
-    total = formatar_reais(anuncio.total_centavos) if anuncio.total_centavos else NAO_INFORMADO
+    """Um imóvel por mensagem (contracts/telegram.md da 003); contato só quando em trânsito."""
     linhas = [
-        f"🏠 {anuncio.tipo.rotulo} · {escape(anuncio.bairro)} · {portal(anuncio.fonte)}",
-        f"{anuncio.quartos} quartos · {area}",
-        f"Aluguel: {formatar_reais(anuncio.aluguel_centavos)} · Total: {total}",
+        "Veja o imóvel que encontrei:",
+        _quartos_no_bairro(anuncio),
+        f"Valor: {formatar_reais(anuncio.aluguel_centavos)}",
+        f"Link: {escape(anuncio.url)}",
     ]
     if contato and contato.nome:
         linhas.append(f"👤 {escape(contato.nome)}")
@@ -156,52 +158,20 @@ def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
     return "\n".join(linhas)
 
 
+SALVAR_FAVORITO = "⭐ Salvar como favorito"
+
+
 def botoes_imovel(anuncio: Anuncio, contato: Contato | None = None) -> list[list[dict[str, str]]]:
     """Linhas de botões: {"t": rótulo, "u": url} ou {"t": rótulo, "c": callback_data}."""
     linha = [{"t": "Abrir anúncio", "u": anuncio.url}]
     if contato and contato.whatsapp_url:
         linha.append({"t": "WhatsApp", "u": contato.whatsapp_url})
-    return [linha]
+    favorito = {"t": SALVAR_FAVORITO, "c": f"f:{anuncio.fonte}:{anuncio.id_externo}"}
+    return [linha, [favorito]]
 
 
 def resposta_padrao() -> str:
     return f"Eu aviso os imóveis às {HORARIOS_TEXTO}. Envie /ajuda para ver os comandos."
-
-
-LIMITE_MENSAGEM = 4000
-MAX_PARTES_RESUMO = 5
-RESERVA_RODAPE = 30
-
-
-def _linha_resumo(anuncio: Anuncio) -> str:
-    return (
-        f"• {escape(anuncio.bairro)} · {anuncio.quartos}q · "
-        f"{formatar_reais(anuncio.aluguel_centavos)} · {portal(anuncio.fonte)} · "
-        f"{escape(anuncio.url)}"
-    )
-
-
-def mensagens_resumo(anuncios: list[Anuncio]) -> list[str]:
-    if not anuncios:
-        return ["Ainda não achei imóveis com os seus filtros. Continuo procurando."]
-    partes: list[str] = []
-    atual = f"Encontrei {len(anuncios)} imóveis com os seus filtros:"
-    usados = 0
-    for anuncio in anuncios:
-        linha = _linha_resumo(anuncio)
-        if len(atual) + 1 + len(linha) > LIMITE_MENSAGEM - RESERVA_RODAPE:
-            if len(partes) == MAX_PARTES_RESUMO - 1:
-                break
-            partes.append(atual)
-            atual = linha
-        else:
-            atual = f"{atual}\n{linha}"
-        usados += 1
-    restantes = len(anuncios) - usados
-    if restantes:
-        atual = f"{atual}\n(+{restantes} imóveis)"
-    partes.append(atual)
-    return partes
 
 
 def aviso_falha(fonte: str, rodadas: int, erro: str | None) -> str:
