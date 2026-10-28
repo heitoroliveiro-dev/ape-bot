@@ -155,14 +155,14 @@ duas vezes no mesmo dia → um resumo no formato do contrato (quickstart 12).
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T039 [P] [US4] Em `tests/test_mensagens.py`: `texto_resumo(ultima_rodada, proxima, por_fonte={"quintoandar": 5, "zap": 2}, creditos)` → as 6 linhas do contrato, com `OLX: 0`, "Você recebeu 7 imóveis", "1 imóvel" no singular; `creditos` texto de erro → `💳 Créditos: saldo indisponível`; `creditos=None` → sem a linha 💳; `texto_status` mostra a linha 💳 para qualquer pessoa e `Na sua fila: {n} imóveis (envio das 8h às 22h).`
-- [ ] T040 [P] [US4] Em `tests/test_rodada.py`: `enviar_resumos(banco, fila, gecko, autorizados, agora)` com fakes: uma chamada a `gecko.creditos()` para todas as pessoas; só pessoas de `pessoas_ativas` recebem; `banco.registrar_resumo` devolvendo `False` (já enviado hoje) → nada enviado; `gecko=None` → resumo sem linha 💳; o dia usado é o de America/Sao_Paulo (23:30 SP de 28/10 = 02:30 UTC de 29/10 → dia 28/10)
+- [X] T039 [P] [US4] Em `tests/test_mensagens.py`: `texto_resumo(ultima_rodada, proxima, por_fonte={"quintoandar": 5, "zap": 2}, creditos)` → as 6 linhas do contrato, com `OLX: 0`, "Você recebeu 7 imóveis", "1 imóvel" no singular; `creditos` texto de erro → `💳 Créditos: saldo indisponível`; `creditos=None` → sem a linha 💳; `texto_status` mostra a linha 💳 para qualquer pessoa e `Na sua fila: {n} imóveis (envio das 8h às 22h).`
+- [X] T040 [P] [US4] Em `tests/test_rodada.py`: `enviar_resumos(banco, fila, gecko, autorizados, agora)` com fakes: uma chamada a `gecko.creditos()` para todas as pessoas; só pessoas de `pessoas_ativas` recebem; `banco.registrar_resumo` devolvendo `False` (já enviado hoje) → nada enviado; `gecko=None` → resumo sem linha 💳; o dia usado é o de America/Sao_Paulo (23:30 SP de 28/10 = 02:30 UTC de 29/10 → dia 28/10)
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] Em `src/apebot/banco.py`: `recebidos_por_fonte_24h(chat_id) -> dict[str, int]` (`envio` `entregue` com `entregue_em >= agora - 24 h`, `GROUP BY fonte`) e `registrar_resumo(chat_id, dia) -> bool` (`INSERT IGNORE INTO resumo_diario`; True se inseriu); `recebidos_24h` passa a somar `recebidos_por_fonte_24h`
-- [ ] T042 [US4] Em `src/apebot/mensagens.py`: `texto_resumo` (T039); `texto_status` com a linha 💳 para todos e a linha "Na sua fila"
-- [ ] T043 [US4] Em `src/apebot/rodada.py`: `async def enviar_resumos(...)` (T040), mensagem `tipo="resumo"` direto em `apebot:envios` (fora da janela, FR-010), log `resumo_enviado chat_id=`; em `src/apebot/main.py`, o job da rodada das 23h chama `enviar_resumos` depois de `Rodada.executar()`, com status ok ou falha; em `src/apebot/telegram_bot.py`, `/status` consulta créditos para qualquer pessoa autorizada e passa `FilaPessoa.tamanho(chat_id)`
+- [X] T041 [US4] Em `src/apebot/banco.py`: `recebidos_por_fonte_24h(chat_id) -> dict[str, int]` (`envio` `entregue` com `entregue_em >= agora - 24 h`, `GROUP BY fonte`) e `registrar_resumo(chat_id, dia) -> bool` (`INSERT IGNORE INTO resumo_diario`; True se inseriu); `recebidos_24h` passa a somar `recebidos_por_fonte_24h`
+- [X] T042 [US4] Em `src/apebot/mensagens.py`: `texto_resumo` (T039); `texto_status` com a linha 💳 para todos e a linha "Na sua fila"
+- [X] T043 [US4] Em `src/apebot/rodada.py`: `async def enviar_resumos(...)` (T040), mensagem `tipo="resumo"` direto em `apebot:envios` (fora da janela, FR-010), log `resumo_enviado chat_id=`; em `src/apebot/main.py`, o job da rodada das 23h chama `enviar_resumos` depois de `Rodada.executar()`, com status ok ou falha; em `src/apebot/telegram_bot.py`, `/status` consulta créditos para qualquer pessoa autorizada e passa `FilaPessoa.tamanho(chat_id)`
 
 **Checkpoint**: quickstart 12 passa; `/status` mostra créditos e tamanho da fila.
 

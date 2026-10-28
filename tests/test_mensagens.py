@@ -17,6 +17,7 @@ from apebot.mensagens import (
     resposta_padrao,
     texto_ajuda,
     texto_filtros,
+    texto_resumo,
     texto_status,
 )
 from apebot.modelos import FUSO, Anuncio, Contato, Filtro, Pessoa, Tipo
@@ -219,10 +220,12 @@ def test_texto_status_pessoa():
         4,
         ESTADOS,
         ["quintoandar", "zap"],
+        na_fila=12,
     )
     assert texto.splitlines() == [
         "📊 Última rodada: 28/10 12:00 · próxima: 15:00",
         "Você recebeu 4 imóveis nas últimas 24 h.",
+        "Na sua fila: 12 imóveis (envio das 8h às 22h).",
         "QuintoAndar: ✅ ok",
         "Zap: ⚠️ falha (HTTP 503 &lt;servidor&gt;)",
         "OLX: ⏹️ desligado",
@@ -246,3 +249,34 @@ def test_texto_status_operador_e_estados_especiais():
     assert texto_status(
         None, datetime(2026, 10, 28, 15, 0, tzinfo=FUSO), 0, {}, [], creditos="erro"
     ).endswith("💳 Créditos: saldo indisponível")
+
+
+def test_texto_status_singular():
+    texto = texto_status(None, datetime(2026, 10, 28, 15, 0, tzinfo=FUSO), 1, {}, [], na_fila=1)
+    assert "Você recebeu 1 imóvel nas últimas 24 h." in texto
+    assert "Na sua fila: 1 imóvel (envio das 8h às 22h)." in texto
+
+
+def test_texto_resumo():
+    texto = texto_resumo(
+        datetime(2026, 10, 29, 2, 0),  # UTC → 23:00 de 28/10 em São Paulo
+        datetime(2026, 10, 29, 6, 0, tzinfo=FUSO),
+        {"quintoandar": 5, "zap": 2},
+        {"currentCredits": 94, "creditsConsumed": {"last24Hours": 7}},
+    )
+    assert texto.splitlines() == [
+        "📊 Última rodada: 28/10 23:00 · próxima: 06:00",
+        "Você recebeu 7 imóveis nas últimas 24 h.",
+        "QuintoAndar: 5",
+        "Zap: 2",
+        "OLX: 0",
+        "💳 Créditos: 94 (gastos em 24 h: 7)",
+    ]
+
+
+def test_texto_resumo_sem_creditos_e_singular():
+    proxima = datetime(2026, 10, 29, 6, 0, tzinfo=FUSO)
+    texto = texto_resumo(None, proxima, {"zap": 1}, None)
+    assert "Você recebeu 1 imóvel nas últimas 24 h." in texto
+    assert "💳" not in texto
+    assert texto_resumo(None, proxima, {}, "erro").endswith("💳 Créditos: saldo indisponível")

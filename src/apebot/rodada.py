@@ -8,7 +8,7 @@ despachante entrega um por vez); o contato do anunciante só vive em memória e 
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -16,11 +16,12 @@ from apebot.banco import Banco, agora
 from apebot.config import Configuracao
 from apebot.fila import Fila, FilaPessoa, Mensagem
 from apebot.filtro import novos_para
+from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.fontes.resultado import ResultadoFonte, status_rodada
-from apebot.mensagens import aviso_falha, aviso_recuperacao
+from apebot.mensagens import aviso_falha, aviso_recuperacao, proxima_rodada, texto_resumo
 from apebot.modelos import FUSO, Anuncio, Contato, Pessoa
 
-__all__ = ["Coletor", "Rodada", "decidir_alerta", "status_rodada"]
+__all__ = ["Coletor", "Rodada", "decidir_alerta", "enviar_resumos", "status_rodada"]
 
 log = logging.getLogger(__name__)
 
@@ -185,3 +186,36 @@ class Rodada:
         await self._fila.enfileirar(
             Mensagem(chat_id=self._config.operador_chat_id, tipo="operador", texto=texto)
         )
+
+
+async def enviar_resumos(
+    banco: Banco,
+    fila: Fila,
+    gecko: ClienteGecko | None,
+    autorizados: Iterable[int],
+    momento: datetime,
+) -> int:
+    """Resumo do dia para cada pessoa ativa, uma vez por dia (research R12 da 003)."""
+    pessoas = await asyncio.to_thread(banco.pessoas_ativas, autorizados)
+    if not pessoas:
+        return 0
+    creditos = await saldo(gecko)  # uma consulta para todos; não gasta crédito
+    ultima = await asyncio.to_thread(banco.ultima_rodada)
+    proxima = proxima_rodada(momento)
+    dia = momento.astimezone(FUSO).date()
+    enviados = 0
+    for pessoa in pessoas:
+        if not await asyncio.to_thread(banco.registrar_resumo, pessoa.chat_id, dia):
+            continue
+        por_fonte = await asyncio.to_thread(banco.recebidos_por_fonte_24h, pessoa.chat_id)
+        # fora da janela de imóveis: vai direto para a entrega (FR-010)
+        await fila.enfileirar(
+            Mensagem(
+                chat_id=pessoa.chat_id,
+                tipo="resumo",
+                texto=texto_resumo(ultima, proxima, por_fonte, creditos),
+            )
+        )
+        log.info("resumo_enviado chat_id=%s", pessoa.chat_id)
+        enviados += 1
+    return enviados

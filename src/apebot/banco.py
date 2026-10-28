@@ -4,7 +4,7 @@ import json
 import logging
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pymysql
@@ -421,14 +421,27 @@ class Banco:
             )
             return {fonte: (status, erro) for fonte, status, erro in c.fetchall()}
 
-    def recebidos_24h(self, chat_id: int) -> int:
+    def recebidos_por_fonte_24h(self, chat_id: int) -> dict[str, int]:
         with self._cursor() as c:
             c.execute(
-                "SELECT COUNT(*) FROM envio"
-                " WHERE chat_id = %s AND status = 'entregue' AND entregue_em >= %s",
+                "SELECT fonte, COUNT(*) FROM envio"
+                " WHERE chat_id = %s AND status = 'entregue' AND entregue_em >= %s"
+                " GROUP BY fonte",
                 (chat_id, agora() - timedelta(hours=24)),
             )
-            return int(c.fetchone()[0])
+            return {fonte: int(n) for fonte, n in c.fetchall()}
+
+    def recebidos_24h(self, chat_id: int) -> int:
+        return sum(self.recebidos_por_fonte_24h(chat_id).values())
+
+    def registrar_resumo(self, chat_id: int, dia: date) -> bool:
+        """True se é o primeiro resumo da pessoa nesse dia (FR-017 da 003)."""
+        with self._cursor() as c:
+            linhas = c.execute(
+                "INSERT IGNORE INTO resumo_diario (chat_id, dia, enviado_em) VALUES (%s, %s, %s)",
+                (chat_id, dia, agora()),
+            )
+        return linhas == 1
 
     def registrar_aviso(self, alerta_id: int) -> None:
         with self._cursor() as c:

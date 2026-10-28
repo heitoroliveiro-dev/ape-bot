@@ -35,7 +35,7 @@ from apebot.cadastro import (
 from apebot.config import Configuracao
 from apebot.fila import Fila, FilaPessoa, Mensagem
 from apebot.filtro import aceita
-from apebot.fontes.geckoapi import ClienteGecko, ErroGecko
+from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.mensagens import (
     CADASTRO_ABERTO,
     TEXTO_PAUSADO,
@@ -217,15 +217,14 @@ def registrar_handlers(
         ultima = await asyncio.to_thread(banco.ultima_rodada)
         estados = await asyncio.to_thread(banco.estados_fonte)
         recebidos = await asyncio.to_thread(banco.recebidos_24h, chat_id)
-        creditos: dict | str | None = None
-        if chat_id == config.operador_chat_id and gecko is not None:
-            try:
-                creditos = await gecko.creditos()
-            except (ErroGecko, ValueError) as erro:
-                log.warning("creditos_indisponiveis erro=%s", erro)
-                creditos = "indisponível"
         texto = texto_status(
-            ultima, proxima_rodada(datetime.now(FUSO)), recebidos, estados, fontes_ligadas, creditos
+            ultima,
+            proxima_rodada(datetime.now(FUSO)),
+            recebidos,
+            estados,
+            fontes_ligadas,
+            await saldo(gecko),  # créditos para todas as pessoas (decisão do dono, FR-031)
+            await fila_pessoa.tamanho(chat_id),
         )
         await responder(update, texto)
 

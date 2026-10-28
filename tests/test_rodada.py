@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections import Counter
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,7 @@ from apebot.config import Configuracao, bairros_validos
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.fontes.zap import extrair_zap
 from apebot.modelos import Filtro, Pessoa, Tipo
-from apebot.rodada import Coletor, Rodada, decidir_alerta, status_rodada
+from apebot.rodada import Coletor, Rodada, decidir_alerta, enviar_resumos, status_rodada
 from tests.test_despacho import FilaPessoaFalsa
 
 
@@ -187,3 +187,66 @@ def test_sem_credito_avisa_o_operador_na_hora():
     operador = [m for m in fila.mensagens if m.tipo == "operador"]
     assert [m.texto for m in operador] == ["💳 sem crédito"]
     assert Counter(s for _, s in banco.fontes) == {"ok": 1, "sem_credito": 1}
+
+
+# --- resumo diário (US4) ---
+
+
+class BancoResumo:
+    def __init__(self, pessoas, ja_enviado=()):
+        self.pessoas = pessoas
+        self.registrados = []
+        self.ja_enviado = set(ja_enviado)
+
+    def pessoas_ativas(self, autorizados):
+        return [p for p in self.pessoas if p.chat_id in autorizados]
+
+    def registrar_resumo(self, chat_id, dia):
+        self.registrados.append((chat_id, dia))
+        return chat_id not in self.ja_enviado
+
+    def recebidos_por_fonte_24h(self, chat_id):
+        return {"quintoandar": 5, "zap": 2}
+
+    def ultima_rodada(self):
+        return datetime(2026, 10, 29, 2, 0)
+
+
+class GeckoFalso:
+    def __init__(self):
+        self.chamadas = 0
+
+    async def creditos(self):
+        self.chamadas += 1
+        return {"currentCredits": 94, "creditsConsumed": {"last24Hours": 7}}
+
+
+OUTRA = Pessoa(chat_id=20, nome="Outra", filtro=PESSOA.filtro)
+AS_23H30 = datetime(2026, 10, 29, 2, 30, tzinfo=UTC)  # 23:30 de 28/10 em São Paulo
+
+
+def _resumos(banco, gecko, autorizados=(PESSOA.chat_id, OUTRA.chat_id)):
+    fila = FilaFalsa()
+    asyncio.run(enviar_resumos(banco, fila, gecko, set(autorizados), AS_23H30))
+    return fila.mensagens
+
+
+def test_resumo_para_cada_pessoa_ativa_com_uma_consulta_de_creditos():
+    banco, gecko = BancoResumo([PESSOA, OUTRA]), GeckoFalso()
+    mensagens = _resumos(banco, gecko)
+    assert [m.chat_id for m in mensagens] == [PESSOA.chat_id, OUTRA.chat_id]
+    assert all(m.tipo == "resumo" for m in mensagens)
+    assert gecko.chamadas == 1
+    assert "💳 Créditos: 94 (gastos em 24 h: 7)" in mensagens[0].texto
+    assert banco.registrados[0] == (PESSOA.chat_id, date(2026, 10, 28))  # dia de São Paulo
+
+
+def test_resumo_so_uma_vez_por_dia_e_so_para_ativas():
+    banco = BancoResumo([PESSOA, OUTRA], ja_enviado={OUTRA.chat_id})
+    mensagens = _resumos(banco, GeckoFalso(), autorizados=[PESSOA.chat_id, OUTRA.chat_id, 99])
+    assert [m.chat_id for m in mensagens] == [PESSOA.chat_id]
+
+
+def test_resumo_sem_geckoapi_omite_creditos():
+    (mensagem,) = _resumos(BancoResumo([PESSOA]), None)
+    assert "💳" not in mensagem.texto

@@ -121,6 +121,30 @@ def _estado(fonte: str, estados: dict[str, tuple[str, str | None]], ligadas: lis
     return _ESTADO_FONTE.get(status, status)
 
 
+def _imoveis(n: int) -> str:
+    return f"{n} imóvel" if n == 1 else f"{n} imóveis"
+
+
+def _cabecalho(ultima_rodada: datetime | None, proxima: datetime, recebidos: int) -> list[str]:
+    if ultima_rodada is None:
+        primeira = f"📊 Ainda não houve rodada. Próxima: {proxima:%H:%M}"
+    else:
+        ultima = _local(ultima_rodada)
+        primeira = f"📊 Última rodada: {ultima:%d/%m %H:%M} · próxima: {proxima:%H:%M}"
+    return [primeira, f"Você recebeu {_imoveis(recebidos)} nas últimas 24 h."]
+
+
+def _linha_creditos(creditos: dict | str | None) -> list[str]:
+    """`creditos`: dict de /v1/me/credits, texto de erro, ou None (sem GeckoAPI: não mostra)."""
+    if isinstance(creditos, dict):
+        saldo = creditos.get("currentCredits", "?")
+        gastos = (creditos.get("creditsConsumed") or {}).get("last24Hours", "?")
+        return [f"💳 Créditos: {saldo} (gastos em 24 h: {gastos})"]
+    if creditos is not None:
+        return ["💳 Créditos: saldo indisponível"]
+    return []
+
+
 def texto_status(
     ultima_rodada: datetime | None,
     proxima: datetime,
@@ -128,22 +152,25 @@ def texto_status(
     estados: dict[str, tuple[str, str | None]],
     fontes_ligadas: list[str],
     creditos: dict | str | None = None,
+    na_fila: int | None = None,
 ) -> str:
-    """`creditos`: dict de /v1/me/credits (operador), texto de erro, ou None (não mostra)."""
-    if ultima_rodada is None:
-        linhas = [f"📊 Ainda não houve rodada. Próxima: {proxima:%H:%M}"]
-    else:
-        ultima = _local(ultima_rodada)
-        linhas = [f"📊 Última rodada: {ultima:%d/%m %H:%M} · próxima: {proxima:%H:%M}"]
-    linhas.append(f"Você recebeu {recebidos_24h} imóveis nas últimas 24 h.")
+    linhas = _cabecalho(ultima_rodada, proxima, recebidos_24h)
+    if na_fila is not None:
+        linhas.append(f"Na sua fila: {_imoveis(na_fila)} (envio das 8h às 22h).")
     linhas += [f"{portal(f)}: {_estado(f, estados, fontes_ligadas)}" for f in ORDEM_FONTES]
-    if isinstance(creditos, dict):
-        saldo = creditos.get("currentCredits", "?")
-        gastos = (creditos.get("creditsConsumed") or {}).get("last24Hours", "?")
-        linhas.append(f"💳 Créditos: {saldo} (gastos em 24 h: {gastos})")
-    elif creditos is not None:
-        linhas.append("💳 Créditos: saldo indisponível")
-    return "\n".join(linhas)
+    return "\n".join(linhas + _linha_creditos(creditos))
+
+
+def texto_resumo(
+    ultima_rodada: datetime | None,
+    proxima: datetime,
+    por_fonte: dict[str, int],
+    creditos: dict | str | None,
+) -> str:
+    """Resumo depois da rodada das 23h (contracts/telegram.md da 003)."""
+    linhas = _cabecalho(ultima_rodada, proxima, sum(por_fonte.values()))
+    linhas += [f"{portal(f)}: {por_fonte.get(f, 0)}" for f in ORDEM_FONTES]
+    return "\n".join(linhas + _linha_creditos(creditos))
 
 
 def portal(fonte: str) -> str:

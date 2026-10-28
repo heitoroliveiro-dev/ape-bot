@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import time
+from datetime import datetime
 from datetime import time as horario
 from functools import partial
 
@@ -25,12 +26,13 @@ from apebot.fontes.geckoapi import ClienteGecko
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.mensagens import COMANDOS, aviso_configuracao
 from apebot.modelos import FUSO, HORARIOS_RODADA, Pessoa
-from apebot.rodada import Coletor, Rodada
+from apebot.rodada import Coletor, Rodada, enviar_resumos
 from apebot.telegram_bot import Despachante, Entregador, registrar_handlers
 
 log = logging.getLogger("apebot")
 
 ESPERA_FILA_MAX_SEGUNDOS = 600
+HORA_RESUMO = 23
 TENTATIVAS_BANCO = 30
 
 
@@ -151,8 +153,10 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
             tarefa.cancel()
         await fila.fechar()
 
-    async def rodada_agendada(_: ContextTypes.DEFAULT_TYPE) -> None:
+    async def rodada_agendada(contexto: ContextTypes.DEFAULT_TYPE) -> None:
         await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
+        if contexto.job.name == f"rodada_{HORA_RESUMO:02d}h":  # depois da rodada, ok ou falha
+            await enviar_resumos(banco, fila, fontes.gecko, config.autorizados, datetime.now(FUSO))
 
     app = (
         Application.builder()
