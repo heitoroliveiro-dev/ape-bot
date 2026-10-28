@@ -131,6 +131,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
     fila = Fila(segredos.redis_url)
     fila_pessoa = FilaPessoa(fila)
     tarefas: list[asyncio.Task] = []
+    pulados: set[datetime] = set()
 
     async def ao_iniciar(app: Application) -> None:
         if config.problemas:
@@ -160,7 +161,9 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
         if devida is None:
             return
         if not await asyncio.to_thread(banco.pessoas_ativas, config.autorizados):
-            log.info("rodada_pulada_sem_pessoas horario=%s", devida.strftime("%H:%M"))
+            if devida not in pulados:  # um log por horário, não um por minuto
+                log.info("rodada_pulada_sem_pessoas horario=%s", devida.strftime("%H:%M"))
+                pulados.add(devida)
             return
         atraso = (momento - devida).total_seconds()
         log.info("rodada_disparada horario=%s atraso=%.0fs", devida.strftime("%H:%M"), atraso)
