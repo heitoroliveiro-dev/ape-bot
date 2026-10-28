@@ -39,8 +39,8 @@ O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre
    | Variável | Valor |
    |---|---|
    | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | os do `.env` |
-   | `GECKO_FONTES` | `zap` |
-   | `NETIMOVEIS` | `desligado` (veja o passo 6) |
+   | `GECKO_FONTES` | `zap,olx` |
+   | `NETIMOVEIS` | `ligado` depois da sonda do passo 6 |
    | `MYSQL_HOST` / `MYSQL_PORT` | `${{MySQL.MYSQLHOST}}` / `${{MySQL.MYSQLPORT}}` |
    | `MYSQL_DATABASE` | `${{MySQL.MYSQLDATABASE}}` |
    | `MYSQL_USER` / `MYSQL_PASSWORD` | `${{MySQL.MYSQLUSER}}` / `${{MySQL.MYSQLPASSWORD}}` |
@@ -68,4 +68,4 @@ docker compose run --rm app ruff check src tests
 
 ## Documentação
 - Arquitetura: `docs/arquitetura.md` · Constituição: `.specify/memory/constitution.md`
-- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX e comandos) e `specs/003-*` (entrega espaçada, cadastro, favoritos e resumo)
+- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX e comandos), `specs/003-*` (entrega espaçada, cadastro, favoritos e resumo), `specs/004-*` (lembrete de achados) e `specs/005-*` (Netimóveis)

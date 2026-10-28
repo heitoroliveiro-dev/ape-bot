@@ -79,6 +79,9 @@ O robô lê as mesmas páginas públicas que um navegador, com `robots.txt` resp
 cliente automatizado pode ser lido como "procedimento diverso". **Zona cinzenta:** a decisão de ligar
 `NETIMOVEIS` é do dono. Opção mais segura: pedir autorização ao Netimóveis (contato no portal) antes de ligar.
 
+**Decisão do dono (28/10/2026):** ligar (`NETIMOVEIS=ligado`), mantendo baixo volume, `robots.txt` e nenhum
+contorno; se o portal bloquear ou pedir, a fonte é desligada.
+
 ## 6. Resumo
 
 | Portal | Técnica | Termos | Situação |

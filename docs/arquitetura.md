@@ -1,10 +1,11 @@
 # ape-bot — Arquitetura (enxuta)
 
-> Versão 1.5 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
+> Versão 1.6 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > 1.1: reflete a feature `001-mvp-quintoandar-telegram` implementada (spec/plan em `specs/001-*`).
 > 1.2: feature `002-geckoapi-zap-olx-telegram` (Zap via GeckoAPI, OLX pronta e desligada, comandos no Telegram).
 > 1.4: feature `004-lembrete-achados` (lembrete único de imóvel barato depois de 32 h).
 > 1.5: feature `005-netimoveis-fonte` (Netimóveis por busca pública e JSON-LD, ligado por `NETIMOVEIS`).
+> 1.6: OLX ligada (`GECKO_FONTES=zap,olx`) com localização por `state` + `city`, sem `region` (correção do suporte da GeckoAPI, constituição 2.2.1).
 > 1.3: feature `003-entrega-espacada-cadastro-telegram` (entrega espaçada, cadastro e edição de filtros pelo Telegram, regionais, favoritos e resumo das 23h); justificativa do escopo em 2.1.
 > Substitui a v0.4 (arquivada em `docs/historico/arquitetura-v0.4-completa.md`). Foco: projeto rápido.
 
@@ -20,7 +21,7 @@ Robô que coleta anúncios de aluguel em Belo Horizonte, guarda no MySQL e avisa
 | Aviso de imóvel novo, sem repetir | Cadastro aberto ao público ou aprovação de pessoas pelo Telegram |
 | Rodadas às 06, 09, 12, 15, 18, 21 e 23h (America/Sao_Paulo) | Limite diário de imóveis por pessoa |
 | Aviso ao operador em falhas repetidas, por fonte | Nuvem gerenciada (Azure) |
-| Zap via GeckoAPI (1 chamada por rodada); OLX pronta e desligada (`GECKO_FONTES`) | VivaReal (excluído: `notFound` e cobra crédito) |
+| Zap e OLX via GeckoAPI (1 chamada por portal por rodada; `GECKO_FONTES=zap,olx`) | VivaReal (excluído: `notFound` e cobra crédito) |
 | **005:** Netimóveis (coletor próprio, só a 1ª página de cada busca bairro × tipo; `NETIMOVEIS`, padrão desligado; `docs/spikes/002-netimoveis.md`) | Sitemap diário e página de detalhe do Netimóveis (IPTU) |
 | Mensagem com portal, botões "Abrir anúncio" e "WhatsApp" e contato do anunciante em trânsito | |
 | Comandos `/ajuda`, `/filtros`, `/status`, `/pausar`, `/retomar` e menu do bot | |
@@ -44,7 +45,7 @@ O acesso continua em lista fechada (princípio IV), e o gasto da GeckoAPI não m
 
 **Fora de vez:** anti-captcha e qualquer contorno de Cloudflare ou de outra proteção antirrobô feito pelo próprio robô.
 
-**Exceção temporária (constituição 2.2.0, princípio III):** Zap e OLX entram pela API paga da GeckoAPI (`POST /v1/extract`, chave em `GECKO_API_KEY`, fontes em `GECKO_FONTES`), com no máximo 1 chamada de listagem por portal por rodada, na cidade inteira, com os filtros somados das pessoas ativas e sem chamadas de detalhe. Todo item passa por trava local de cidade/UF e pelo catálogo de bairros. O contato do anunciante vai só na mensagem (fila Redis) e nunca no MySQL. A fonte é desligada quando a busca do familiar terminar. Orçamento: refil de 1.000 créditos por R$ 49,90, e 1 portal × 7 rodadas = 210 créditos/mês.
+**Exceção temporária (constituição 2.2.0, princípio III):** Zap e OLX entram pela API paga da GeckoAPI (`POST /v1/extract`, chave em `GECKO_API_KEY`, fontes em `GECKO_FONTES`), com no máximo 1 chamada de listagem por portal por rodada, na cidade inteira, com os filtros somados das pessoas ativas e sem chamadas de detalhe. Todo item passa por trava local de cidade/UF e pelo catálogo de bairros. O contato do anunciante vai só na mensagem (fila Redis) e nunca no MySQL. A fonte é desligada quando a busca do familiar terminar. Orçamento: refil de 1.000 créditos por R$ 49,90; 2 portais × 7 rodadas × 30 dias = 420 créditos/mês.
 
 ## 3. Fluxo
 
@@ -121,7 +122,7 @@ ape-bot/
 Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet), **filtro**, **conversa do cadastro** (valor em centavos, nome, transições), **despacho** (janela, ordem, intervalo, reconciliação) e **textos**. O resto é validado rodando.
 
 ## 8. Pendências
-1. OLX: ligar (`GECKO_FONTES=zap,olx`) só quando a GeckoAPI respeitar a localização; abrir chamado com os `request_id` de `resposta_fonte`.
+1. OLX: resolvido em 28/10/2026. O suporte da GeckoAPI confirmou que `region` (e a URL `belo-horizonte-e-regiao/...`) fazia a OLX ignorar a cidade; com só `state: MG` + `city: Belo Horizonte`, 1 chamada de teste trouxe 50 itens, todos de BH (46 aproveitados). URL equivalente: `https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte?sf=1`.
 2. Ler os termos de uso do QuintoAndar.
 3. Onde roda: Railway desde 28/10/2026 (`railway.json`, 1 réplica, MySQL e Redis do Railway); o Docker Compose segue para rodar local.
 6. Netimóveis: ler os termos de uso e rodar a sonda a partir do IP do Railway antes de `NETIMOVEIS=ligado`.

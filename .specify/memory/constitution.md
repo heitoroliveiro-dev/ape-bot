@@ -46,8 +46,9 @@ VivaReal fica excluído (devolve `notFound` para aluguel em BH e cobra o crédit
 - A API pode ignorar a localização pedida: todo item MUST passar por filtro local de cidade/UF
   antes de entrar no banco.
 - A chave vem de `GECKO_API_KEY`, e cada fonte é ligada ou desligada por configuração; sem chave
-  ou desligada, a fonte não é chamada e as demais seguem normalmente. A OLX fica desligada até a
-  GeckoAPI respeitar a localização.
+  ou desligada, a fonte não é chamada e as demais seguem normalmente. A OLX só pode ser ligada com
+  a localização por `state` + `city` (sem `region` nem URL), que a GeckoAPI validou em 28/10/2026;
+  a trava local de cidade/UF continua obrigatória.
 - Dados de anunciante que a API devolver MUST NOT ser armazenados.
 - **Contato em trânsito:** nome, telefone e WhatsApp do anunciante PODEM aparecer na mensagem do
   Telegram enviada a uma pessoa autorizada, passando só pela fila Redis até a entrega. Reenvio
@@ -103,4 +104,4 @@ visita; ele já é público no portal e não fica guardado pelo robô.
 - **Conformidade:** o `plan.md` passa pelo Constitution Check; `/speckit-analyze`, quando usado,
   trata violação de princípio como crítica.
 
-**Version**: 2.2.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-10-27
+**Version**: 2.2.1 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-10-28
