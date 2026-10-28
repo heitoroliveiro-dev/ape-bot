@@ -3,7 +3,7 @@
 > Versão 1.3 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > 1.1: reflete a feature `001-mvp-quintoandar-telegram` implementada (spec/plan em `specs/001-*`).
 > 1.2: feature `002-geckoapi-zap-olx-telegram` (Zap via GeckoAPI, OLX pronta e desligada, comandos no Telegram).
-> 1.3: escopo da feature `003-entrega-espacada-cadastro-telegram` (em especificação) e a justificativa em 2.1. As seções 3 a 6 continuam descrevendo o que já roda até a 003 ser entregue.
+> 1.3: feature `003-entrega-espacada-cadastro-telegram` (entrega espaçada, cadastro e edição de filtros pelo Telegram, regionais, favoritos e resumo das 23h); justificativa do escopo em 2.1.
 > Substitui a v0.4 (arquivada em `docs/historico/arquitetura-v0.4-completa.md`). Foco: projeto rápido.
 
 ## 1. O que é
@@ -50,28 +50,32 @@ flowchart LR
     agenda --> zap["Coletor Zap / OLX<br/>GeckoAPI (1 chamada)"]
     zap --> trava["Trava cidade/UF<br/>+ catálogo de bairros"]
     trava --> db
-    zap -. "contato em trânsito" .-> fila
-    qa --> db[("MySQL<br/>anuncio, envio, rodada,<br/>rodada_fonte, alerta")]
-    db --> filtro["Filtro por pessoa<br/>filtros.yaml"]
-    filtro --> fila[["Redis<br/>fila de notificações"]]
-    fila --> worker["Worker Telegram<br/>(respeita limite de envio)"]
-    worker --> tg["Telegram<br/>chat_ids definidos"]
+    zap -. "contato em trânsito" .-> filap
+    qa --> db[("MySQL<br/>pessoa (filtros), anuncio, envio,<br/>rodada, rodada_fonte, alerta,<br/>conversa, favorito, resumo_diario")]
+    db --> filtro["Filtro por pessoa<br/>(filtros salvos no MySQL)"]
+    filtro --> filap[["Redis<br/>fila de cada pessoa<br/>(mais barato primeiro)"]]
+    filap --> desp["Despachante<br/>1 imóvel a cada 2–5 min<br/>das 8h às 22h"]
+    desp --> fila[["Redis<br/>fila de entrega"]]
+    fila --> worker["Entregador Telegram<br/>(respeita limite de envio)"]
+    worker --> tg["Telegram<br/>chat_ids autorizados"]
+    tg -. "/start, Editar filtros,<br/>⭐ favorito" .-> db
 ```
 
-- **Telegram não envia por número de telefone.** Cada pessoa abre o bot e manda `/start` uma vez. O bot registra o `chat_id`, e o `filtros.yaml` associa filtros a esse `chat_id`. Só chats da lista recebem mensagens.
-- **Redis:** fila entre "achou imóvel" e "enviou no Telegram". O worker controla o ritmo (cerca de 1 mensagem por segundo por chat) e tenta de novo em falha. Alternativa mais simples, se preferir um container a menos: fila em memória (`asyncio.Queue`).
+- **Telegram não envia por número de telefone.** Cada pessoa abre o bot e manda `/start` uma vez. O `filtros.yaml` só diz quais `chat_id`s são autorizados (e, para quem ainda não tem cadastro, filtros iniciais). Os filtros ficam no MySQL: a pessoa se cadastra pelo `/start` (nome, tipos, quartos, bairros por regional, valor máximo) e muda pelo botão "Editar filtros" do `/filtros`; vale a partir da rodada seguinte. A conversa é uma máquina de estados pura (`cadastro.py`) com o estado na tabela `conversa`, então sobrevive a reinício.
+- **Duas filas no Redis:** a rodada põe cada imóvel novo na fila **da pessoa** (ZSET pelo aluguel + HASH com o imóvel e o contato do anunciante). O **despachante** acorda a cada 20 s e, das 8h às 22h, tira o mais barato de cada pessoa cujo intervalo sorteado (2–5 min, `ENTREGA_INTERVALO`) já passou, confere de novo o filtro atual e passa para a **fila de entrega**, onde o entregador controla o ritmo do Telegram e tenta de novo em falha. Na subida, uma reconciliação recoloca os `envio` pendentes que não estão em nenhuma das filas (sem contato). Não existe mais resumo em lista.
+- **Regionais:** os 283 bairros do catálogo (`dados/bairros_bh.csv`: slug do QuintoAndar, nome oficial e regional) vêm do PDF da PBH em `docs/referencias/`, por `scripts/regionais_pbh.py`, rodado uma vez.
 - **Coleta:** uma requisição por combinação bairro × tipo dos filtros, na URL pública `/alugar/imovel/{bairro}-belo-horizonte-mg-brasil/{tipo}`; dados do JSON `__NEXT_DATA__`; anúncios de bairros vizinhos que o portal mistura na página são descartados.
 - **Sleep:** 2 a 5 s aleatórios entre requisições ao mesmo portal, e backoff em 429/5xx. Sem seguir redirects.
 - **Fontes isoladas:** cada fonte vira uma linha em `rodada_fonte` (`ok`, `falha`, `desligada`, `sem_credito`); a falha de uma não derruba as outras, e o alerta ao operador é por fonte. Página do QuintoAndar sem a lista carregada (falha passageira do portal) ganha uma nova tentativa e conta como erro de acesso, não de formato.
-- **Telegram:** menu de comandos; `/pausar` grava `pessoa.pausada_em` e `/retomar` força um resumo na rodada seguinte; `/status` mostra a última rodada, as fontes e, para o operador, o saldo da GeckoAPI.
-- **Processo único:** bot (`/start`), agendador (`JobQueue`) e worker da fila rodam no mesmo processo; Docker Compose com `restart: unless-stopped`.
+- **Telegram:** menu de comandos; mensagem de imóvel com "Abrir anúncio", "WhatsApp" (quando houver) e "⭐ Salvar como favorito" (`/favoritos` lista); `/pausar` grava `pessoa.pausada_em` e limpa a fila da pessoa; `/status` mostra a última rodada, as fontes, a fila da pessoa e o saldo da GeckoAPI. Depois da rodada das 23h sai um resumo por pessoa (uma vez por dia, `resumo_diario`), com recebidos por portal e créditos.
+- **Processo único:** bot, agendador (`JobQueue`), despachante e entregador rodam no mesmo processo; Docker Compose com `restart: unless-stopped`.
 
 ## 4. Stack
 Python 3.12 · `httpx` · `beautifulsoup4` · `python-telegram-bot` (com `JobQueue`) · `redis` · `PyMySQL` + SQL puro · `pytest` · `ruff` · Docker Compose (app + MySQL + Redis). Playwright só entra se uma fonte permitida exigir JavaScript; o QuintoAndar não exige (os dados vêm no `__NEXT_DATA__`).
 
 ## 5. Dados
 
-Tabelas `pessoa`, `anuncio`, `envio` (status pendente/entregue/falhou; PK por pessoa + anúncio impede repetição), `rodada` e `alerta`. Detalhes em `specs/001-mvp-quintoandar-telegram/data-model.md`; DDL em `migrations/001_inicial.sql`.
+Tabelas `pessoa` (com `filtros` JSON e `cadastro_completo_em` desde a 003), `anuncio`, `envio` (status pendente/entregue/falhou; PK por pessoa + anúncio impede repetição; pendente descartado por filtro ou pausa é apagado e volta a ser candidato), `rodada`, `rodada_fonte`, `alerta`, `conversa`, `favorito` e `resumo_diario`. Detalhes nos `data-model.md` de `specs/001-*` a `specs/003-*`; DDL em `migrations/`.
 
 `resposta_fonte` (`migrations/002_resposta_fonte.sql`) guarda a resposta JSON bruta da GeckoAPI, uma linha por `requestId`, **sem dados de anunciante** (`advertiser`, `seller`, telefones e e-mail são removidos antes de gravar; princípio III). Importação manual: `docker compose run --rm -v <pasta>:/importar:ro app python -m apebot.importar_resposta /importar/*.json`.
 
@@ -87,25 +91,28 @@ ape-bot/
 │   ├── fontes/zap.py · olx.py  # payload com filtros somados + parse
 │   ├── fontes/resultado.py     # ResultadoFonte, trava cidade/UF, bairro, WhatsApp
 │   ├── importar_resposta.py    # JSON da GeckoAPI → resposta_fonte
-│   ├── config.py · modelos.py  # .env, filtros.yaml, Anuncio/Filtro/Pessoa
-│   ├── mensagens.py · rodada.py
-│   ├── filtro.py               # regras do filtros.yaml
+│   ├── config.py · modelos.py  # .env, filtros.yaml (autorizados), catálogo, Anuncio/Filtro/Pessoa
+│   ├── dados/bairros_bh.csv    # slug, nome oficial e regional de cada bairro
+│   ├── cadastro.py             # conversa do cadastro e da edição (pura), valor e nome
+│   ├── mensagens.py · rodada.py  # textos; rodada e resumo diário
+│   ├── filtro.py               # regras do filtro e formato JSON salvo
 │   ├── banco.py                # MySQL
-│   ├── fila.py                 # Redis
-│   ├── telegram_bot.py         # comandos, botões, worker de envio
+│   ├── fila.py                 # Redis: fila de entrega e fila de cada pessoa
+│   ├── telegram_bot.py         # comandos, botões, despachante e entregador
 │   └── main.py                 # agendador e composição
-├── tests/ (fixtures/ + testes de parse e filtro)
+├── scripts/regionais_pbh.py    # PDF da PBH → bairros_bh.csv (roda uma vez)
+├── tests/ (fixtures/ + testes de parse, filtro, cadastro, despacho e textos)
 ├── filtros.yaml.example
 ├── docker-compose.yml · Dockerfile · .env.example · pyproject.toml
-└── docs/ (arquitetura.md, spikes/, historico/)
+└── docs/ (arquitetura.md, referencias/, spikes/, historico/)
 ```
 
 ## 7. Testes
-Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet) e **filtro**. O resto é validado rodando.
+Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet), **filtro**, **conversa do cadastro** (valor em centavos, nome, transições), **despacho** (janela, ordem, intervalo, reconciliação) e **textos**. O resto é validado rodando.
 
 ## 8. Pendências
 1. OLX: ligar (`GECKO_FONTES=zap,olx`) só quando a GeckoAPI respeitar a localização; abrir chamado com os `request_id` de `resposta_fonte`.
 2. Ler os termos de uso do QuintoAndar.
 3. Onde roda: máquina própria, VPS barata ou VM na nuvem. O Docker Compose funciona em qualquer uma.
 4. GeckoAPI (teste no Playground em 27/10/2026, 6 créditos): VivaReal devolveu `notFound` para aluguel em BH; Zap funciona (22.060 imóveis, 30 por página), mas não ordena por data nem informa data de publicação, e traz `advertiser` com telefones; OLX ordena por data (`listedAt`), mas ignorou a localização, por campos e por URL, e devolveu 50 itens de fora de MG. Nenhum portal atende ainda ao modelo "1 chamada por rodada". As duas respostas estão em `resposta_fonte`; fixtures cortadas em `tests/fixtures/geckoapi/`. Próximo passo: chamado no suporte da GeckoAPI sobre OLX/VivaReal antes de comprar o refil.
-5. Tabela bairro → regional (003): fonte é o PDF da PBH "Relação de bairros, regionais e territórios de gestão compartilhada" (487 bairros, 9 regionais, sem Hipercentro; cópia em `docs/referencias/pbh-bairros-regionais.pdf`), baixado pelo navegador (o portal bloqueia acesso automatizado). 240 dos 289 bairros do catálogo batem direto pelo nome; os demais são resolvidos por apelido, revisados à mão ou saem do catálogo (6 não são de BH).
+5. Tabela bairro → regional (003): feita. 240 dos 289 bairros do catálogo bateram direto com o PDF da PBH; 22 por apelido ou sufixo; 6 de fora de BH saíram; 21 ficaram em "Outros" (lista em `src/apebot/dados/bairros_bh.csv`). Se algum deles ganhar regional, ajustar `scripts/regionais_pbh.py` e gerar de novo.

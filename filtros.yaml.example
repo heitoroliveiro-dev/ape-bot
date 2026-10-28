@@ -1,0 +1,13 @@
+# Quem pode usar o robô (specs/003-entrega-espacada-cadastro-telegram/contracts/configuracao.md).
+# Os filtros de cada pessoa ficam no banco: ela se cadastra pelo /start e muda pelo /filtros.
+operador_chat_id: 111111111        # recebe avisos de falha; precisa estar em pessoas
+
+pessoas:
+  - chat_id: 111111111
+    nome: Operador                 # opcional: só vale para quem ainda não tem cadastro
+    filtros:                       # opcional: filtros iniciais de quem ainda não tem cadastro
+      bairros: [prado, barroca]    # slug ou nome do bairro (src/apebot/dados/bairros_bh.csv)
+      aluguel_max: 3000            # reais, inteiro > 0
+      quartos_min: 2               # 0 a 4
+      tipos: [apartamento, casa]   # apartamento | casa | casa_condominio | kitnet
+  - chat_id: 222222222             # só autorizado: faz o cadastro pelo /start

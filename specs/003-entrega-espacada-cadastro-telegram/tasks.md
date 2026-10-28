@@ -190,10 +190,10 @@ duas vezes no mesmo dia → um resumo no formato do contrato (quickstart 12).
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T048 [P] Em `src/apebot/mensagens.py` e `tests/test_mensagens.py`: `texto_ajuda` e `resposta_padrao` exatamente como em contracts/telegram.md (entrega das 8h às 22h, resumo às 23h, `/favoritos`, "ver e editar")
-- [ ] T049 [P] Atualizar `docs/arquitetura.md` seções 3 a 6 (fluxo com fila por pessoa, despachante e resumo; Telegram com cadastro, edição e favoritos; dados com `conversa`, `favorito`, `resumo_diario` e `pessoa.filtros`; estrutura com `cadastro.py`, `scripts/` e `bairros_bh.csv`) e tirar o "(em especificação)" do cabeçalho
-- [ ] T050 [P] Atualizar `README.md`: `filtros.yaml` como lista de autorizados, cadastro pelo `/start`, `ENTREGA_INTERVALO` e como gerar de novo a tabela de regionais
-- [ ] T051 Rodar `.venv/bin/pytest -q && .venv/bin/ruff check src tests scripts && .venv/bin/ruff format --check src tests scripts` e corrigir o que falhar
+- [X] T048 [P] Em `src/apebot/mensagens.py` e `tests/test_mensagens.py`: `texto_ajuda` e `resposta_padrao` exatamente como em contracts/telegram.md (entrega das 8h às 22h, resumo às 23h, `/favoritos`, "ver e editar")
+- [X] T049 [P] Atualizar `docs/arquitetura.md` seções 3 a 6 (fluxo com fila por pessoa, despachante e resumo; Telegram com cadastro, edição e favoritos; dados com `conversa`, `favorito`, `resumo_diario` e `pessoa.filtros`; estrutura com `cadastro.py`, `scripts/` e `bairros_bh.csv`) e tirar o "(em especificação)" do cabeçalho
+- [X] T050 [P] Atualizar `README.md`: `filtros.yaml` como lista de autorizados, cadastro pelo `/start`, `ENTREGA_INTERVALO` e como gerar de novo a tabela de regionais
+- [X] T051 Rodar `.venv/bin/pytest -q && .venv/bin/ruff check src tests scripts && .venv/bin/ruff format --check src tests scripts` e corrigir o que falhar
 - [ ] T052 Executar os cenários do `quickstart.md` com `ENTREGA_INTERVALO=5-10` e registrar o resultado numa seção "Resultado da validação" no fim de `specs/003-entrega-espacada-cadastro-telegram/quickstart.md`; voltar `ENTREGA_INTERVALO` ao padrão
 
 ---

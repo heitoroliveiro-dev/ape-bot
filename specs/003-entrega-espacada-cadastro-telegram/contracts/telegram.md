@@ -47,7 +47,7 @@ caro. A mensagem-resumo em lista da 001/002 deixa de existir.
 | valor | `Qual valor máximo de aluguel? Exemplos: 2500, 2.500 ou R$ 2.500,00` | Texto (R7). Inválido: `Não entendi esse valor. Escreva só o número, como 2500 ou 2.500,00, entre R$ 300 e R$ 50.000.` |
 | fim | `Perfeito, {nome}! Vou te ajudar a encontrar um imóvel com sua cara para alugar! Durante o dia vou te enviar o que achar por aqui, fique atento(a).` | — |
 
-- Texto enviado numa etapa de botões: `Use os botões da mensagem acima. 👆` e repete a etapa.
+- Texto enviado numa etapa de botões: nova mensagem `Use os botões para responder. 👇` seguida da etapa atual, com os botões.
 - Toque num botão de etapa que já passou: aviso `Essa pergunta já passou.`, sem mudança.
 - `/start` ou texto com o cadastro aberto: reapresenta a etapa atual (retomada).
 - `/start` de quem já tem cadastro: o texto **Filtros** abaixo, com o botão `Editar filtros`.

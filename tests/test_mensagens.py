@@ -130,7 +130,7 @@ def test_callback_de_favorito_cabe_no_limite_do_telegram():
 
 def test_resposta_padrao():
     assert resposta_padrao() == (
-        "Eu aviso os imóveis às 06, 09, 12, 15, 18, 21 e 23h. Envie /ajuda para ver os comandos."
+        "Eu te mando os imóveis por aqui, das 8h às 22h. Envie /ajuda para ver os comandos."
     )
 
 
@@ -171,12 +171,17 @@ def test_comandos_do_menu():
 
 
 def test_texto_ajuda_lista_so_portais_ligados():
-    texto = texto_ajuda(["quintoandar", "zap"])
-    assert "Portais: QuintoAndar, Zap" in texto
-    assert "OLX" not in texto
-    for comando in ("/filtros", "/status", "/pausar", "/retomar"):
-        assert comando in texto
-    assert "06, 09, 12, 15, 18, 21 e 23h" in texto
+    assert texto_ajuda(["quintoandar", "zap"]).splitlines() == [
+        "🤖 Eu procuro imóveis para alugar em BH nas rodadas das 06, 09, 12, 15, 18, 21 e 23h.",
+        "Te mando um imóvel por vez, das 8h às 22h, começando pelos mais baratos.",
+        "Às 23h chega um resumo do dia.",
+        "Portais: QuintoAndar, Zap",
+        "/filtros — ver e editar seus filtros",
+        "/favoritos — imóveis que você salvou",
+        "/status — última rodada e portais",
+        "/pausar — parar os avisos por um tempo",
+        "/retomar — voltar a receber",
+    ]
 
 
 def test_texto_filtros_ativo_e_pausado():

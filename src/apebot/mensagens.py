@@ -1,4 +1,4 @@
-"""Textos enviados no Telegram (contracts/telegram.md da 001 e da 002). HTML do Telegram."""
+"""Textos enviados no Telegram (contracts/telegram.md da 001 a 003). HTML do Telegram."""
 
 from datetime import UTC, datetime, timedelta
 from html import escape
@@ -48,9 +48,12 @@ ORDEM_FONTES = ("quintoandar", "zap", "olx")
 def texto_ajuda(fontes_ligadas: list[str]) -> str:
     portais = ", ".join(portal(f) for f in ORDEM_FONTES if f in fontes_ligadas)
     return (
-        f"🤖 Eu procuro imóveis para alugar em BH e te aviso dos novos às {HORARIOS_TEXTO}.\n"
+        f"🤖 Eu procuro imóveis para alugar em BH nas rodadas das {HORARIOS_TEXTO}.\n"
+        "Te mando um imóvel por vez, das 8h às 22h, começando pelos mais baratos.\n"
+        "Às 23h chega um resumo do dia.\n"
         f"Portais: {portais}\n"
-        "/filtros — ver seus filtros\n"
+        "/filtros — ver e editar seus filtros\n"
+        "/favoritos — imóveis que você salvou\n"
         "/status — última rodada e portais\n"
         "/pausar — parar os avisos por um tempo\n"
         "/retomar — voltar a receber"
@@ -251,7 +254,7 @@ def texto_favoritos(anuncios: list[Anuncio]) -> list[str]:
 
 
 def resposta_padrao() -> str:
-    return f"Eu aviso os imóveis às {HORARIOS_TEXTO}. Envie /ajuda para ver os comandos."
+    return "Eu te mando os imóveis por aqui, das 8h às 22h. Envie /ajuda para ver os comandos."
 
 
 def aviso_falha(fonte: str, rodadas: int, erro: str | None) -> str:
