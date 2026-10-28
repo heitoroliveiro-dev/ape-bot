@@ -4,7 +4,16 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 
 from apebot.config import nome_bairro
-from apebot.modelos import FUSO, HORARIOS_RODADA, NOMES_FONTE, Anuncio, Contato, Pessoa
+from apebot.modelos import (
+    FUSO,
+    HORARIOS_RODADA,
+    NOMES_FONTE,
+    Anuncio,
+    Contato,
+    Filtro,
+    Pessoa,
+    Tipo,
+)
 
 HORARIOS_TEXTO = ", ".join(f"{h:02d}" for h in HORARIOS_RODADA[:-1]) + (
     f" e {HORARIOS_RODADA[-1]:02d}h"
@@ -17,29 +26,9 @@ def formatar_reais(centavos: int) -> str:
     return f"R$ {reais:,}".replace(",", ".") + f",{resto:02d}"
 
 
-def _linha_filtros(pessoa: Pessoa) -> str:
-    f = pessoa.filtro
-    bairros = ", ".join(sorted(nome_bairro(b) for b in f.bairros))
-    tipos = ", ".join(sorted(t.rotulo for t in f.tipos))
-    return (
-        f"Seus filtros: {escape(bairros)} · até {formatar_reais(f.aluguel_max_centavos)}"
-        f" · {f.quartos_min}+ quartos · {escape(tipos)}"
-    )
-
-
 def _local(momento_utc: datetime) -> datetime:
     """Horários do banco são UTC sem fuso; exibidos em São Paulo."""
     return momento_utc.replace(tzinfo=UTC).astimezone(FUSO)
-
-
-def confirmacao_start(pessoa: Pessoa, pausada: bool = False) -> str:
-    texto = (
-        f"Pronto, {escape(pessoa.nome)}! Vou te avisar de imóveis novos às {HORARIOS_TEXTO}.\n"
-        f"{_linha_filtros(pessoa)}"
-    )
-    if pausada:
-        texto += "\nSeus avisos estão pausados. Use /retomar para voltar."
-    return texto
 
 
 # Menu do Telegram (contracts/telegram.md da 002).
@@ -52,7 +41,6 @@ COMANDOS = [
 ]
 TEXTO_PAUSADO = "⏸️ Avisos pausados. Use /retomar quando quiser voltar."
 TEXTO_RETOMADO = "▶️ Avisos retomados. Na próxima rodada eu volto a te mandar o que encontrar."
-SEM_FILTROS = "Você está sem filtros válidos."
 ORDEM_FONTES = ("quintoandar", "zap", "olx")
 
 
@@ -68,13 +56,40 @@ def texto_ajuda(fontes_ligadas: list[str]) -> str:
     )
 
 
-def texto_filtros(pessoa: Pessoa, pausada_em: datetime | None, nome_operador: str) -> str:
+def linhas_filtro(filtro: Filtro) -> list[str]:
+    """Bloco "Seus filtros -" do /filtros e da revisão da edição (contracts/telegram.md da 003)."""
+    bairros = ", ".join(sorted(nome_bairro(b) for b in filtro.bairros))
+    tipos = ", ".join(t.rotulo for t in Tipo if t in filtro.tipos)
+    if filtro.quartos_min:
+        quartos = f"com {filtro.quartos_min}+ quartos"
+    else:
+        quartos = "com qualquer número de quartos"
+    return [
+        "Seus filtros -",
+        f"Bairros: {escape(bairros)}",
+        f"Valores até {formatar_reais(filtro.aluguel_max_centavos)}",
+        f"{escape(tipos)} {quartos}",
+    ]
+
+
+def texto_filtros(pessoa: Pessoa, pausada_em: datetime | None) -> str:
     avisos = "ativos" if pausada_em is None else f"pausados desde {_local(pausada_em):%d/%m %H:%M}"
+    return "\n".join([*linhas_filtro(pessoa.filtro), f"Avisos: {avisos}"])
+
+
+def boas_vindas(nome: str) -> str:
     return (
-        f"{_linha_filtros(pessoa)}\n"
-        f"Avisos: {avisos}\n"
-        f"Para mudar os filtros, fale com {escape(nome_operador)}."
+        f"Perfeito, {escape(nome)}! Vou te ajudar a encontrar um imóvel com sua cara para alugar! "
+        "Durante o dia vou te enviar o que achar por aqui, fique atento(a)."
     )
+
+
+def filtros_salvos(proxima: datetime) -> str:
+    return f"Filtros salvos! Eles valem a partir da próxima rodada ({proxima:%H:%M})."
+
+
+EDICAO_CANCELADA = "Edição cancelada. Seus filtros continuam os mesmos."
+CADASTRO_ABERTO = "Termine o cadastro primeiro: /start"
 
 
 def proxima_rodada(agora: datetime) -> datetime:

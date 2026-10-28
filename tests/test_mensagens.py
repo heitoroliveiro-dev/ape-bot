@@ -11,7 +11,6 @@ from apebot.mensagens import (
     aviso_recuperacao,
     aviso_sem_credito,
     botoes_imovel,
-    confirmacao_start,
     formatar_reais,
     mensagem_imovel,
     proxima_rodada,
@@ -40,15 +39,6 @@ def test_formatar_reais():
     assert formatar_reais(245_050) == "R$ 2.450,50"
     assert formatar_reais(90_000) == "R$ 900,00"
     assert formatar_reais(99) == "R$ 0,99"
-
-
-def test_confirmacao_start():
-    texto = confirmacao_start(PESSOA)
-    assert texto.startswith(
-        "Pronto, Heitor! Vou te avisar de imóveis novos às 06, 09, 12, 15, 18, 21 e 23h."
-    )
-    assert "Seus filtros: Buritis, Santa Mônica · até R$ 3.000,00 · 2+ quartos" in texto
-    assert "Apartamento" in texto and "Casa em condomínio" in texto
 
 
 ANUNCIO = Anuncio(
@@ -178,18 +168,22 @@ def test_texto_ajuda_lista_so_portais_ligados():
 
 
 def test_texto_filtros_ativo_e_pausado():
-    ativo = texto_filtros(PESSOA, None, "Heitor")
-    assert ativo.startswith("Seus filtros: Buritis, Santa Mônica · até R$ 3.000,00 · 2+ quartos")
-    assert "Avisos: ativos" in ativo
-    assert ativo.endswith("Para mudar os filtros, fale com Heitor.")
-    pausado = texto_filtros(PESSOA, datetime(2026, 10, 28, 15, 30), "Heitor")  # UTC no banco
-    assert "Avisos: pausados desde 28/10 12:30" in pausado
+    ativo = texto_filtros(PESSOA, None)
+    assert ativo == (
+        "Seus filtros -\n"
+        "Bairros: Buritis, Santa Mônica\n"
+        "Valores até R$ 3.000,00\n"
+        "Apartamento, Casa em condomínio com 2+ quartos\n"
+        "Avisos: ativos"
+    )
+    assert "fale com" not in ativo
+    pausado = texto_filtros(PESSOA, datetime(2026, 10, 28, 15, 30))  # UTC no banco
+    assert pausado.endswith("Avisos: pausados desde 28/10 12:30")
 
 
-def test_confirmacao_start_pausada():
-    texto = confirmacao_start(PESSOA, pausada=True)
-    assert texto.endswith("Seus avisos estão pausados. Use /retomar para voltar.")
-    assert "pausados" not in confirmacao_start(PESSOA)
+def test_texto_filtros_sem_minimo_de_quartos():
+    qualquer = replace(PESSOA, filtro=replace(PESSOA.filtro, quartos_min=0))
+    assert "Casa em condomínio com qualquer número de quartos\n" in texto_filtros(qualquer, None)
 
 
 def test_textos_de_pausa():

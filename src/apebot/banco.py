@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pymysql
 
+from apebot.cadastro import Estado
 from apebot.config import Segredos, bairros_validos
 from apebot.filtro import filtro_de_json, filtro_para_json
 from apebot.fontes.geckoapi import RespostaGecko
@@ -151,6 +152,37 @@ class Banco:
                 " cadastro_completo_em = COALESCE(cadastro_completo_em, %s) WHERE chat_id = %s",
                 (nome, json.dumps(filtro_para_json(filtro)), momento, momento, chat_id),
             )
+
+    # conversa do cadastro e da edição ---------------------------------------------------
+
+    def conversa(self, chat_id: int) -> Estado | None:
+        with self._cursor() as c:
+            c.execute("SELECT modo, etapa, rascunho FROM conversa WHERE chat_id = %s", (chat_id,))
+            linha = c.fetchone()
+        if linha is None:
+            return None
+        modo, etapa, rascunho = linha
+        return Estado(modo=modo, etapa=etapa, rascunho=json.loads(rascunho))
+
+    def salvar_conversa(self, chat_id: int, estado: Estado) -> None:
+        with self._cursor() as c:
+            c.execute(
+                "INSERT INTO conversa (chat_id, modo, etapa, rascunho, atualizada_em)"
+                " VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE modo = VALUES(modo),"
+                " etapa = VALUES(etapa), rascunho = VALUES(rascunho),"
+                " atualizada_em = VALUES(atualizada_em)",
+                (
+                    chat_id,
+                    estado.modo,
+                    estado.etapa,
+                    json.dumps(estado.rascunho, ensure_ascii=False),
+                    agora(),
+                ),
+            )
+
+    def apagar_conversa(self, chat_id: int) -> None:
+        with self._cursor() as c:
+            c.execute("DELETE FROM conversa WHERE chat_id = %s", (chat_id,))
 
     def registrar_pessoa(self, chat_id: int) -> None:
         with self._cursor() as c:

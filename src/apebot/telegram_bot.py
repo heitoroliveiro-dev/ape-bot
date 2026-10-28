@@ -10,10 +10,11 @@ from datetime import datetime, timedelta
 import redis.exceptions
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Update
 from telegram.constants import ParseMode
-from telegram.error import Forbidden, RetryAfter, TelegramError
+from telegram.error import BadRequest, Forbidden, RetryAfter, TelegramError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -22,16 +23,26 @@ from telegram.ext import (
 )
 
 from apebot.banco import Banco
+from apebot.cadastro import (
+    JA_PASSOU,
+    Resposta,
+    Resultado,
+    iniciar_cadastro,
+    iniciar_edicao,
+    processar,
+    reapresentar,
+)
 from apebot.config import Configuracao
 from apebot.fila import Fila, FilaPessoa, Mensagem
 from apebot.filtro import aceita
 from apebot.fontes.geckoapi import ClienteGecko, ErroGecko
 from apebot.mensagens import (
-    SEM_FILTROS,
+    CADASTRO_ABERTO,
     TEXTO_PAUSADO,
     TEXTO_RETOMADO,
+    boas_vindas,
     botoes_imovel,
-    confirmacao_start,
+    filtros_salvos,
     mensagem_imovel,
     proxima_rodada,
     resposta_padrao,
@@ -39,7 +50,7 @@ from apebot.mensagens import (
     texto_filtros,
     texto_status,
 )
-from apebot.modelos import FUSO
+from apebot.modelos import FUSO, Pessoa
 
 log = logging.getLogger(__name__)
 
@@ -60,11 +71,13 @@ def registrar_handlers(
     gecko: ClienteGecko | None = None,
 ) -> None:
     autorizados = set(config.autorizados) | {config.operador_chat_id}
-    nome_operador = config.autorizados.get(config.operador_chat_id) or "o operador"
 
-    async def responder(update: Update, texto: str) -> None:
+    async def responder(update: Update, texto: str, botoes=None) -> None:
         await update.effective_message.reply_text(
-            texto, parse_mode=ParseMode.HTML, link_preview_options=SEM_PREVIA
+            texto,
+            parse_mode=ParseMode.HTML,
+            link_preview_options=SEM_PREVIA,
+            reply_markup=_teclado(botoes or []),
         )
 
     async def barrar_nao_autorizados(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,37 +85,135 @@ def registrar_handlers(
         if chat is None or chat.id not in autorizados:
             log.info("chat_nao_autorizado chat_id=%s", chat.id if chat else None)
             raise ApplicationHandlerStop
-        mensagem = update.effective_message
-        texto = mensagem.text if mensagem and mensagem.text else ""
-        log.info(
-            "update_recebido chat_id=%s texto=%s",
-            chat.id,
-            texto.split()[0] if texto.startswith("/") else "mensagem",
+        if update.callback_query is not None:
+            entrada = "botao"
+        else:
+            mensagem = update.effective_message
+            texto = mensagem.text if mensagem and mensagem.text else ""
+            entrada = texto.split()[0] if texto.startswith("/") else "mensagem"
+        log.info("update_recebido chat_id=%s texto=%s", chat.id, entrada)
+
+    async def cadastrada(update: Update) -> Pessoa | None:
+        """A pessoa com cadastro completo; senão, pede para terminar o cadastro."""
+        pessoa, _, _ = await asyncio.to_thread(banco.pessoa, update.effective_chat.id)
+        if pessoa is None:
+            await responder(update, CADASTRO_ABERTO)
+        return pessoa
+
+    # --- cadastro e edição (research R6 da 003) ---
+
+    async def mostrar(update: Update, resposta: Resposta | None) -> None:
+        query = update.callback_query
+        if query is not None:
+            await query.answer(resposta.aviso if resposta else None)
+        if resposta is None or resposta.texto is None:
+            return
+        teclado = _teclado(
+            [[{"t": b.texto, "c": b.dados} for b in linha] for linha in resposta.teclado]
         )
+        if query is not None and resposta.editar:
+            try:
+                await query.edit_message_text(
+                    resposta.texto,
+                    parse_mode=ParseMode.HTML,
+                    link_preview_options=SEM_PREVIA,
+                    reply_markup=teclado,
+                )
+            except BadRequest as erro:
+                if "not modified" not in str(erro):
+                    raise
+            return
+        await update.effective_message.reply_text(
+            resposta.texto,
+            parse_mode=ParseMode.HTML,
+            link_preview_options=SEM_PREVIA,
+            reply_markup=teclado,
+        )
+
+    async def aplicar(update: Update, modo: str, resultado: Resultado) -> None:
+        chat_id = update.effective_chat.id
+        if resultado.acao == "seguir":
+            await asyncio.to_thread(banco.salvar_conversa, chat_id, resultado.estado)
+            await mostrar(update, resultado.resposta)
+            return
+        await asyncio.to_thread(banco.apagar_conversa, chat_id)
+        if resultado.acao == "cancelar":
+            await mostrar(update, resultado.resposta)
+            return
+        await asyncio.to_thread(banco.salvar_filtros, chat_id, resultado.nome, resultado.filtro)
+        if modo == "cadastro":
+            log.info("cadastro_concluido chat_id=%s", chat_id)
+            texto = boas_vindas(resultado.nome)
+        else:
+            log.info("filtros_salvos chat_id=%s", chat_id)
+            texto = filtros_salvos(proxima_rodada(datetime.now(FUSO)))
+        await mostrar(update, Resposta(texto, editar=True))
 
     async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
         await asyncio.to_thread(banco.registrar_pessoa, chat_id)
         log.info("pessoa_registrada chat_id=%s", chat_id)
-        pessoa, pausada, _ = await asyncio.to_thread(banco.pessoa, chat_id)
-        if pessoa is None:
-            await responder(update, SEM_FILTROS)
+        conversa = await asyncio.to_thread(banco.conversa, chat_id)
+        if conversa is not None and conversa.modo == "cadastro":  # retomada (FR-023)
+            await mostrar(update, reapresentar(conversa))
             return
-        await responder(update, confirmacao_start(pessoa, pausada=pausada is not None))
+        pessoa, _, _ = await asyncio.to_thread(banco.pessoa, chat_id)
+        if pessoa is not None:
+            await mostrar_filtros(update, chat_id)
+            return
+        await aplicar(update, "cadastro", iniciar_cadastro())
+
+    async def editar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        pessoa, _, _ = await asyncio.to_thread(banco.pessoa, update.effective_chat.id)
+        if pessoa is None:
+            await update.callback_query.answer(JA_PASSOU)
+            return
+        resultado = iniciar_edicao(pessoa)
+        resultado.resposta.editar = True
+        await aplicar(update, "edicao", resultado)
+
+    async def botao_conversa(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        estado = await asyncio.to_thread(banco.conversa, update.effective_chat.id)
+        if estado is None:
+            await update.callback_query.answer(JA_PASSOU)
+            return
+        await aplicar(update, estado.modo, processar(estado, dados=update.callback_query.data))
+
+    async def texto_livre(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        estado = await asyncio.to_thread(banco.conversa, update.effective_chat.id)
+        mensagem = update.effective_message
+        if estado is not None and mensagem.text and mensagem.text.startswith("/"):
+            # comando desconhecido no meio da conversa não vira resposta (ex.: nome "/x")
+            await responder(
+                update, CADASTRO_ABERTO if estado.modo == "cadastro" else resposta_padrao()
+            )
+            return
+        if estado is None or not mensagem.text:
+            await mensagem.reply_text(resposta_padrao())
+            return
+        await aplicar(update, estado.modo, processar(estado, texto=mensagem.text))
+
+    # --- comandos ---
 
     async def ajuda(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await responder(update, texto_ajuda(fontes_ligadas))
 
     async def ver_filtros(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        pessoa, pausada, _ = await asyncio.to_thread(banco.pessoa, chat_id)
-        if pessoa is None:
-            await responder(update, SEM_FILTROS)
+        if await cadastrada(update) is None:
             return
-        await responder(update, texto_filtros(pessoa, pausada, nome_operador))
+        await mostrar_filtros(update, chat_id)
+
+    async def mostrar_filtros(update: Update, chat_id: int) -> None:
+        """Texto Filtros com "Editar filtros"; uma edição aberta e abandonada é descartada."""
+        await asyncio.to_thread(banco.apagar_conversa, chat_id)
+        pessoa, pausada, _ = await asyncio.to_thread(banco.pessoa, chat_id)
+        await responder(update, texto_filtros(pessoa, pausada), BOTAO_EDITAR)
 
     async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
+        if await cadastrada(update) is None:
+            return
         ultima = await asyncio.to_thread(banco.ultima_rodada)
         estados = await asyncio.to_thread(banco.estados_fonte)
         recebidos = await asyncio.to_thread(banco.recebidos_24h, chat_id)
@@ -120,8 +231,7 @@ def registrar_handlers(
 
     async def pausar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        if (await asyncio.to_thread(banco.pessoa, chat_id))[0] is None:
-            await responder(update, SEM_FILTROS)
+        if await cadastrada(update) is None:
             return
         await asyncio.to_thread(banco.pausar, chat_id)
         # os imóveis que não saíram voltam a ser candidatos depois do /retomar (research R4)
@@ -132,15 +242,11 @@ def registrar_handlers(
 
     async def retomar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        if (await asyncio.to_thread(banco.pessoa, chat_id))[0] is None:
-            await responder(update, SEM_FILTROS)
+        if await cadastrada(update) is None:
             return
         await asyncio.to_thread(banco.retomar, chat_id)
         log.info("avisos_retomados chat_id=%s", chat_id)
         await responder(update, TEXTO_RETOMADO)
-
-    async def padrao(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-        await update.effective_message.reply_text(resposta_padrao())
 
     app.add_handler(TypeHandler(Update, barrar_nao_autorizados), group=-1)
     app.add_handler(CommandHandler("start", start))
@@ -150,7 +256,12 @@ def registrar_handlers(
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("pausar", pausar))
     app.add_handler(CommandHandler("retomar", retomar))
-    app.add_handler(MessageHandler(filters.ALL, padrao))
+    app.add_handler(CallbackQueryHandler(editar, pattern=r"^e:inicio$"))
+    app.add_handler(CallbackQueryHandler(botao_conversa, pattern=r"^c:"))
+    app.add_handler(MessageHandler(filters.ALL, texto_livre))
+
+
+BOTAO_EDITAR = [[{"t": "✏️ Editar filtros", "c": "e:inicio"}]]
 
 
 def _botao(botao: dict[str, str]) -> InlineKeyboardButton:
@@ -231,7 +342,7 @@ class Despachante:
             except Exception:  # uma pessoa com problema não para as outras
                 log.exception("despacho_erro chat_id=%s", pessoa.chat_id)
 
-    async def _despachar(self, pessoa, agora: datetime) -> None:
+    async def _despachar(self, pessoa: Pessoa, agora: datetime) -> None:
         chat_id = pessoa.chat_id
         proximo = await self._fila_pessoa.proximo(chat_id)
         if proximo is not None and agora.timestamp() < proximo:
