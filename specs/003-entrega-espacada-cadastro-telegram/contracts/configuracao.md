@@ -5,17 +5,17 @@ Passa a ser a **lista de autorizados**. Os filtros no arquivo são opcionais e s
 para quem ainda não tem cadastro (research R5).
 
 ```yaml
-operador_chat_id: 8522143832      # obrigatório; precisa estar em pessoas
+operador_chat_id: 111111111       # obrigatório; precisa estar em pessoas
 
 pessoas:
-  - chat_id: 8522143832           # obrigatório, inteiro, único
+  - chat_id: 111111111            # obrigatório, inteiro, único
     nome: Heitor                  # opcional (semente)
     filtros:                      # opcional (semente); mesmo formato da 001
       bairros: [prado, barroca]
       aluguel_max: 3000
       quartos_min: 2
       tipos: [apartamento, casa]
-  - chat_id: 123456789            # autorizado; faz o cadastro pelo /start
+  - chat_id: 222222222            # autorizado; faz o cadastro pelo /start
 ```
 
 | Situação | Comportamento |
