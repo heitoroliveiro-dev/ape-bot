@@ -16,9 +16,11 @@ from apebot.mensagens import (
     proxima_rodada,
     resposta_padrao,
     texto_ajuda,
+    texto_favoritos,
     texto_filtros,
     texto_resumo,
     texto_status,
+    trocar_botao_favorito,
 )
 from apebot.modelos import FUSO, Anuncio, Contato, Filtro, Pessoa, Tipo
 
@@ -155,7 +157,16 @@ def test_aviso_recuperacao():
 
 
 def test_comandos_do_menu():
-    assert [c for c, _ in COMANDOS] == ["ajuda", "filtros", "status", "pausar", "retomar"]
+    assert [c for c, _ in COMANDOS] == [
+        "ajuda",
+        "filtros",
+        "favoritos",
+        "status",
+        "pausar",
+        "retomar",
+    ]
+    assert dict(COMANDOS)["filtros"] == "Ver e editar meus filtros"
+    assert dict(COMANDOS)["favoritos"] == "Imóveis que salvei"
     assert all(descricao for _, descricao in COMANDOS)
 
 
@@ -280,3 +291,35 @@ def test_texto_resumo_sem_creditos_e_singular():
     assert "Você recebeu 1 imóvel nas últimas 24 h." in texto
     assert "💳" not in texto
     assert texto_resumo(None, proxima, {}, "erro").endswith("💳 Créditos: saldo indisponível")
+
+
+def test_texto_favoritos_vazio():
+    assert texto_favoritos([]) == [
+        'Você ainda não tem favoritos. Toque em "⭐ Salvar como favorito" numa mensagem de imóvel.'
+    ]
+
+
+def test_texto_favoritos_lista_com_link():
+    (texto,) = texto_favoritos([ZAP, ANUNCIO])
+    assert texto == (
+        "⭐ Seus favoritos (2):\n"
+        f"⭐ 2 quartos · Gutierrez · R$ 2.700,00 · Zap\n{ZAP.url}\n"
+        f"⭐ 2 quartos · Buritis · R$ 2.700,00 · QuintoAndar\n{ANUNCIO.url}"
+    )
+
+
+def test_texto_favoritos_longo_em_blocos_sem_cortar_item():
+    muitos = [replace(ANUNCIO, id_externo=str(i), url=f"{ANUNCIO.url}{i:05d}") for i in range(120)]
+    blocos = texto_favoritos(muitos)
+    assert len(blocos) > 1
+    assert all(len(b) <= 4000 for b in blocos)
+    assert sum(b.count("⭐ 2 quartos") for b in blocos) == 120
+    assert all(linha.startswith(("⭐", "https://")) for b in blocos for linha in b.splitlines())
+
+
+def test_trocar_botao_favorito():
+    linhas = botoes_imovel(ZAP, CONTATO)
+    salvo = trocar_botao_favorito(linhas, salvo=True)
+    assert salvo[0] == linhas[0]  # Abrir anúncio e WhatsApp continuam
+    assert salvo[1] == [{"t": "✅ Favorito · toque para remover", "c": "f:zap:2919519749"}]
+    assert trocar_botao_favorito(salvo, salvo=False) == linhas

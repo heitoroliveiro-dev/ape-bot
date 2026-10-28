@@ -325,6 +325,34 @@ class Banco:
         with self._cursor() as c:
             c.execute("DELETE FROM envio WHERE chat_id = %s AND status = 'pendente'", (chat_id,))
 
+    # favoritos ----------------------------------------------------------------------------
+
+    def alternar_favorito(self, chat_id: int, chave: Chave) -> bool:
+        """Salva ou remove; devolve se ficou salvo. A PK impede favorito duplicado (FR-012)."""
+        with self._cursor() as c:
+            if c.execute(
+                "INSERT IGNORE INTO favorito (chat_id, fonte, id_externo, salvo_em)"
+                " VALUES (%s, %s, %s, %s)",
+                (chat_id, *chave, agora()),
+            ):
+                return True
+            c.execute(
+                "DELETE FROM favorito WHERE chat_id = %s AND fonte = %s AND id_externo = %s",
+                (chat_id, *chave),
+            )
+            return False
+
+    def favoritos(self, chat_id: int) -> list[Anuncio]:
+        with self._cursor() as c:
+            c.execute(
+                "SELECT a.fonte, a.id_externo, a.tipo, a.bairro, a.bairro_slug, a.quartos,"
+                " a.area_m2, a.aluguel_centavos, a.total_centavos, a.url"
+                " FROM favorito f JOIN anuncio a USING (fonte, id_externo)"
+                " WHERE f.chat_id = %s ORDER BY f.salvo_em DESC, f.fonte, f.id_externo",
+                (chat_id,),
+            )
+            return [_anuncio(linha) for linha in c.fetchall()]
+
     # rodadas e alertas -----------------------------------------------------
 
     def iniciar_rodada(self) -> int:

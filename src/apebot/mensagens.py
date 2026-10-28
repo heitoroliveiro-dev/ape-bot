@@ -34,7 +34,8 @@ def _local(momento_utc: datetime) -> datetime:
 # Menu do Telegram (contracts/telegram.md da 002).
 COMANDOS = [
     ("ajuda", "Como o robô funciona"),
-    ("filtros", "Ver meus filtros"),
+    ("filtros", "Ver e editar meus filtros"),
+    ("favoritos", "Imóveis que salvei"),
     ("status", "Última rodada e portais"),
     ("pausar", "Pausar os avisos"),
     ("retomar", "Voltar a receber avisos"),
@@ -201,6 +202,7 @@ def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
 
 
 SALVAR_FAVORITO = "⭐ Salvar como favorito"
+FAVORITO_SALVO = "✅ Favorito · toque para remover"
 
 
 def botoes_imovel(anuncio: Anuncio, contato: Contato | None = None) -> list[list[dict[str, str]]]:
@@ -210,6 +212,42 @@ def botoes_imovel(anuncio: Anuncio, contato: Contato | None = None) -> list[list
         linha.append({"t": "WhatsApp", "u": contato.whatsapp_url})
     favorito = {"t": SALVAR_FAVORITO, "c": f"f:{anuncio.fonte}:{anuncio.id_externo}"}
     return [linha, [favorito]]
+
+
+def trocar_botao_favorito(
+    linhas: list[list[dict[str, str]]], salvo: bool
+) -> list[list[dict[str, str]]]:
+    """Troca só o rótulo do botão de favorito (callback f:…), mantendo os outros botões."""
+    rotulo = FAVORITO_SALVO if salvo else SALVAR_FAVORITO
+    return [
+        [b | {"t": rotulo} if b.get("c", "").startswith("f:") else b for b in linha]
+        for linha in linhas
+    ]
+
+
+LIMITE_MENSAGEM = 4000
+
+
+def texto_favoritos(anuncios: list[Anuncio]) -> list[str]:
+    """Blocos de até 4.000 caracteres, sem cortar um imóvel no meio (research R11 da 003)."""
+    if not anuncios:
+        return [
+            'Você ainda não tem favoritos. Toque em "⭐ Salvar como favorito" numa mensagem'
+            " de imóvel."
+        ]
+    blocos, atual = [], f"⭐ Seus favoritos ({len(anuncios)}):"
+    for a in anuncios:
+        quartos = _quartos_no_bairro(a).split(" no bairro ")[0]
+        item = (
+            f"⭐ {quartos} · {escape(nome_bairro(a.bairro_slug))} · "
+            f"{formatar_reais(a.aluguel_centavos)} · {portal(a.fonte)}\n{escape(a.url)}"
+        )
+        if len(atual) + 1 + len(item) > LIMITE_MENSAGEM:
+            blocos.append(atual)
+            atual = item
+        else:
+            atual = f"{atual}\n{item}"
+    return [*blocos, atual]
 
 
 def resposta_padrao() -> str:

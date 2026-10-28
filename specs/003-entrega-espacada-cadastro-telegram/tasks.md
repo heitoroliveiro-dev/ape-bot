@@ -176,13 +176,13 @@ duas vezes no mesmo dia → um resumo no formato do contrato (quickstart 12).
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T044 [P] [US5] Em `tests/test_mensagens.py`: `texto_favoritos([])` → texto de "ainda não tem favoritos"; com itens, cabeçalho `⭐ Seus favoritos ({n}):` e uma entrada `⭐ {q} quartos · {Bairro} · R$ {valor} · {Portal}\n{url}` por item, em blocos ≤ 4.000 caracteres sem cortar item; `trocar_botao_favorito(linhas, salvo=True)` troca só o botão `f:` por `✅ Favorito · toque para remover` e mantém `Abrir anúncio`/`WhatsApp`; `salvo=False` volta a `⭐ Salvar como favorito`
+- [X] T044 [P] [US5] Em `tests/test_mensagens.py`: `texto_favoritos([])` → texto de "ainda não tem favoritos"; com itens, cabeçalho `⭐ Seus favoritos ({n}):` e uma entrada `⭐ {q} quartos · {Bairro} · R$ {valor} · {Portal}\n{url}` por item, em blocos ≤ 4.000 caracteres sem cortar item; `trocar_botao_favorito(linhas, salvo=True)` troca só o botão `f:` por `✅ Favorito · toque para remover` e mantém `Abrir anúncio`/`WhatsApp`; `salvo=False` volta a `⭐ Salvar como favorito`
 
 ### Implementation for User Story 5
 
-- [ ] T045 [US5] Em `src/apebot/banco.py`: `alternar_favorito(chat_id, chave) -> bool` (`INSERT IGNORE` com `salvo_em`; 0 linhas → `DELETE`; devolve se ficou salvo) e `favoritos(chat_id) -> list[Anuncio]` (`JOIN anuncio`, `ORDER BY salvo_em DESC`)
-- [ ] T046 [US5] Em `src/apebot/mensagens.py`: `texto_favoritos` e `trocar_botao_favorito` (T044); acrescentar `("favoritos", "Imóveis que salvei")` a `COMANDOS` e mudar a descrição de `filtros` para `Ver e editar meus filtros`
-- [ ] T047 [US5] Em `src/apebot/telegram_bot.py`: `CallbackQueryHandler` para `f:{fonte}:{id_externo}` → `alternar_favorito`, `query.answer("⭐ Salvo nos favoritos" | "Removido dos favoritos")` e `edit_message_reply_markup` com `trocar_botao_favorito` sobre `query.message.reply_markup`; `/favoritos` envia os blocos de `texto_favoritos`; log `favorito chat_id= salvo=`
+- [X] T045 [US5] Em `src/apebot/banco.py`: `alternar_favorito(chat_id, chave) -> bool` (`INSERT IGNORE` com `salvo_em`; 0 linhas → `DELETE`; devolve se ficou salvo) e `favoritos(chat_id) -> list[Anuncio]` (`JOIN anuncio`, `ORDER BY salvo_em DESC`)
+- [X] T046 [US5] Em `src/apebot/mensagens.py`: `texto_favoritos` e `trocar_botao_favorito` (T044); acrescentar `("favoritos", "Imóveis que salvei")` a `COMANDOS` e mudar a descrição de `filtros` para `Ver e editar meus filtros`
+- [X] T047 [US5] Em `src/apebot/telegram_bot.py`: `CallbackQueryHandler` para `f:{fonte}:{id_externo}` → `alternar_favorito`, `query.answer("⭐ Salvo nos favoritos" | "Removido dos favoritos")` e `edit_message_reply_markup` com `trocar_botao_favorito` sobre `query.message.reply_markup`; `/favoritos` envia os blocos de `texto_favoritos`; log `favorito chat_id= salvo=`
 
 **Checkpoint**: quickstart 10 passa.
 

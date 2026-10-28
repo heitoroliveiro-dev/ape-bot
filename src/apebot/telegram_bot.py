@@ -47,8 +47,10 @@ from apebot.mensagens import (
     proxima_rodada,
     resposta_padrao,
     texto_ajuda,
+    texto_favoritos,
     texto_filtros,
     texto_status,
+    trocar_botao_favorito,
 )
 from apebot.modelos import FUSO, Pessoa
 
@@ -247,16 +249,44 @@ def registrar_handlers(
         log.info("avisos_retomados chat_id=%s", chat_id)
         await responder(update, TEXTO_RETOMADO)
 
+    # --- favoritos (research R11 da 003) ---
+
+    async def favorito(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        _, fonte, id_externo = query.data.split(":", 2)
+        salvo = await asyncio.to_thread(
+            banco.alternar_favorito, update.effective_chat.id, (fonte, id_externo)
+        )
+        log.info("favorito chat_id=%s salvo=%s", update.effective_chat.id, salvo)
+        await query.answer("⭐ Salvo nos favoritos" if salvo else "Removido dos favoritos")
+        markup = query.message.reply_markup if query.message else None
+        if markup is not None:
+            linhas = trocar_botao_favorito(_linhas_do_markup(markup), salvo)
+            try:
+                await query.edit_message_reply_markup(reply_markup=_teclado(linhas))
+            except BadRequest as erro:
+                if "not modified" not in str(erro):
+                    raise
+
+    async def ver_favoritos(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        if await cadastrada(update) is None:
+            return
+        anuncios = await asyncio.to_thread(banco.favoritos, update.effective_chat.id)
+        for bloco in texto_favoritos(anuncios):
+            await responder(update, bloco)
+
     app.add_handler(TypeHandler(Update, barrar_nao_autorizados), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ajuda", ajuda))
     app.add_handler(CommandHandler("help", ajuda))
     app.add_handler(CommandHandler("filtros", ver_filtros))
+    app.add_handler(CommandHandler("favoritos", ver_favoritos))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("pausar", pausar))
     app.add_handler(CommandHandler("retomar", retomar))
     app.add_handler(CallbackQueryHandler(editar, pattern=r"^e:inicio$"))
     app.add_handler(CallbackQueryHandler(botao_conversa, pattern=r"^c:"))
+    app.add_handler(CallbackQueryHandler(favorito, pattern=r"^f:[a-z]+:.+$"))
     app.add_handler(MessageHandler(filters.ALL, texto_livre))
 
 
@@ -267,6 +297,13 @@ def _botao(botao: dict[str, str]) -> InlineKeyboardButton:
     if "u" in botao:
         return InlineKeyboardButton(botao["t"], url=botao["u"])
     return InlineKeyboardButton(botao["t"], callback_data=botao["c"])
+
+
+def _linhas_do_markup(markup: InlineKeyboardMarkup) -> list[list[dict[str, str]]]:
+    return [
+        [{"t": b.text, "u": b.url} if b.url else {"t": b.text, "c": b.callback_data} for b in linha]
+        for linha in markup.inline_keyboard
+    ]
 
 
 def _teclado(linhas: list[list[dict[str, str]]]) -> InlineKeyboardMarkup | None:

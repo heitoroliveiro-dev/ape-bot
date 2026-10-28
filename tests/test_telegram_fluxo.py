@@ -7,8 +7,10 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 from apebot.config import Configuracao
 from apebot.filtro import filtro_de_json, filtro_para_json
+from apebot.mensagens import botoes_imovel
 from apebot.modelos import Filtro, Pessoa, Tipo
-from apebot.telegram_bot import registrar_handlers
+from apebot.telegram_bot import _teclado, registrar_handlers
+from tests.test_mensagens import CONTATO, ZAP
 
 CHAT = 10
 
@@ -18,6 +20,7 @@ class BancoFalso:
         self.pessoas: dict[int, Pessoa] = {}
         self.conversas = {}
         self.pausada = None
+        self.favoritos = set()
 
     def registrar_pessoa(self, chat_id):
         pass
@@ -34,6 +37,10 @@ class BancoFalso:
 
     def apagar_conversa(self, chat_id):
         self.conversas.pop(chat_id, None)
+
+    def alternar_favorito(self, chat_id, chave):
+        self.favoritos ^= {chave}
+        return chave in self.favoritos
 
     def salvar_filtros(self, chat_id, nome, filtro):
         # passa pelo mesmo JSON do MySQL
@@ -56,6 +63,10 @@ class Query:
         self.message = mensagem
         self.avisos = []
         self.editadas = []
+        self.teclados = []
+
+    async def edit_message_reply_markup(self, reply_markup=None):
+        self.teclados.append(reply_markup)
 
     async def answer(self, texto=None):
         self.avisos.append(texto)
@@ -97,8 +108,9 @@ def _texto(app, texto):
     return mensagem.enviadas
 
 
-def _tocar(app, dados):
+def _tocar(app, dados, reply_markup=None):
     mensagem = Mensagem()
+    mensagem.reply_markup = reply_markup
     query = Query(dados, mensagem)
     update = SimpleNamespace(
         effective_chat=SimpleNamespace(id=CHAT), effective_message=mensagem, callback_query=query
@@ -188,3 +200,17 @@ def test_editar_e_salvar_o_valor():
     query = _tocar(app, "c:revisao:salvar")
     assert query.editadas[-1][0].startswith("Filtros salvos! Eles valem a partir da próxima rodada")
     assert banco.pessoas[CHAT].filtro.aluguel_max_centavos == 200_000
+
+
+def test_favorito_alterna_e_troca_so_o_botao():
+    app, banco = _app()
+    markup = _teclado(botoes_imovel(ZAP, CONTATO))
+    query = _tocar(app, "f:zap:2919519749", markup)
+    assert query.avisos == ["⭐ Salvo nos favoritos"]
+    assert banco.favoritos == {("zap", "2919519749")}
+    (novo,) = query.teclados
+    rotulos = [b.text for linha in novo.inline_keyboard for b in linha]
+    assert rotulos == ["Abrir anúncio", "WhatsApp", "✅ Favorito · toque para remover"]
+    query = _tocar(app, "f:zap:2919519749", novo)
+    assert query.avisos == ["Removido dos favoritos"]
+    assert banco.favoritos == set()
