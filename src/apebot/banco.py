@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pymysql
 
-from apebot.config import Segredos
+from apebot.config import Segredos, bairros_validos
+from apebot.filtro import filtro_de_json, filtro_para_json
 from apebot.fontes.geckoapi import RespostaGecko
 from apebot.fontes.resultado import ResultadoFonte
-from apebot.modelos import Anuncio, Pessoa, Tipo
+from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
 
 log = logging.getLogger(__name__)
 
@@ -71,14 +72,85 @@ class Banco:
 
     # pessoas ---------------------------------------------------------------
 
-    def sincronizar_pessoas(self, pessoas: Iterable[Pessoa]) -> None:
+    def semear_pessoas(
+        self, autorizados: dict[int, str | None], sementes: Iterable[Pessoa]
+    ) -> list[str]:
+        """Cria os chats autorizados e grava a semente do arquivo em quem ainda não tem cadastro.
+
+        O nome e os filtros passam a ser da pessoa (research R5 da 003): o arquivo não sobrescreve
+        quem já tem cadastro. Devolve os avisos ao operador.
+        """
+        avisos = []
+        momento = agora()
         with self._cursor() as c:
-            for p in pessoas:
+            for chat_id, nome in autorizados.items():
                 c.execute(
-                    "INSERT INTO pessoa (chat_id, nome) VALUES (%s, %s)"
-                    " ON DUPLICATE KEY UPDATE nome = VALUES(nome)",
-                    (p.chat_id, p.nome),
+                    "INSERT IGNORE INTO pessoa (chat_id, nome) VALUES (%s, %s)",
+                    (chat_id, nome or str(chat_id)),
                 )
+            for p in sementes:
+                semente = filtro_para_json(p.filtro)
+                if filtro_de_json(semente, bairros_validos()) is None:
+                    avisos.append(f"{p.nome}: filtros do arquivo fora das regras do cadastro")
+                    continue
+                c.execute("SELECT filtros FROM pessoa WHERE chat_id = %s", (p.chat_id,))
+                (salvo,) = c.fetchone()
+                if salvo is None:
+                    c.execute(
+                        "UPDATE pessoa SET nome = %s, filtros = %s, cadastro_completo_em = %s,"
+                        " filtros_atualizados_em = %s WHERE chat_id = %s",
+                        (p.nome, json.dumps(semente), momento, momento, p.chat_id),
+                    )
+                elif json.loads(salvo) != semente:
+                    avisos.append(
+                        f"{p.nome}: filtros do arquivo ignorados;"
+                        " vale o que a pessoa salvou no Telegram"
+                    )
+        return avisos
+
+    def pessoas_ativas(self, autorizados: Iterable[int]) -> list[Pessoa]:
+        """Registradas, com cadastro completo, não pausadas e autorizadas no arquivo."""
+        permitidos = set(autorizados)
+        with self._cursor() as c:
+            c.execute(
+                "SELECT chat_id, nome, filtros FROM pessoa WHERE registrada_em IS NOT NULL"
+                " AND cadastro_completo_em IS NOT NULL AND pausada_em IS NULL"
+            )
+            linhas = c.fetchall()
+        pessoas = []
+        for chat_id, nome, filtros in linhas:
+            if chat_id not in permitidos:
+                continue
+            pessoa = _pessoa(chat_id, nome, filtros)
+            if pessoa is None:
+                log.warning("filtro_invalido chat_id=%s", chat_id)
+            else:
+                pessoas.append(pessoa)
+        return pessoas
+
+    def pessoa(self, chat_id: int) -> tuple[Pessoa | None, datetime | None, bool]:
+        """(pessoa com filtro, pausada_em, cadastro completo) de um chat."""
+        with self._cursor() as c:
+            c.execute(
+                "SELECT nome, filtros, pausada_em, cadastro_completo_em FROM pessoa"
+                " WHERE chat_id = %s",
+                (chat_id,),
+            )
+            linha = c.fetchone()
+        if linha is None:
+            return None, None, False
+        nome, filtros, pausada_em, completo_em = linha
+        completo = completo_em is not None
+        return (_pessoa(chat_id, nome, filtros) if completo else None), pausada_em, completo
+
+    def salvar_filtros(self, chat_id: int, nome: str, filtro: Filtro) -> None:
+        momento = agora()
+        with self._cursor() as c:
+            c.execute(
+                "UPDATE pessoa SET nome = %s, filtros = %s, filtros_atualizados_em = %s,"
+                " cadastro_completo_em = COALESCE(cadastro_completo_em, %s) WHERE chat_id = %s",
+                (nome, json.dumps(filtro_para_json(filtro)), momento, momento, chat_id),
+            )
 
     def registrar_pessoa(self, chat_id: int) -> None:
         with self._cursor() as c:
@@ -337,6 +409,11 @@ class Banco:
     def fechar_alerta(self, alerta_id: int) -> None:
         with self._cursor() as c:
             c.execute("UPDATE alerta SET fechado_em = %s WHERE id = %s", (agora(), alerta_id))
+
+
+def _pessoa(chat_id: int, nome: str, filtros: str | None) -> Pessoa | None:
+    filtro = filtro_de_json(json.loads(filtros), bairros_validos()) if filtros else None
+    return Pessoa(chat_id=chat_id, nome=nome, filtro=filtro) if filtro else None
 
 
 def _anuncio(linha: tuple) -> Anuncio:

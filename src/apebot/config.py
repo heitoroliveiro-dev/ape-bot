@@ -1,14 +1,18 @@
+import csv
+import io
 import os
 from dataclasses import dataclass, field
+from functools import cache
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from apebot.modelos import Filtro, Pessoa, Tipo, slug
+from apebot.modelos import REGIONAIS, Bairro, Filtro, Pessoa, Tipo, slug
 
 FONTES_GECKO = ("zap", "olx")  # constituição 2.2.0: VivaReal excluído
+ENTREGA_INTERVALO_PADRAO = (120, 300)  # segundos entre dois imóveis da mesma pessoa
 
 
 class ConfiguracaoInvalida(Exception):
@@ -29,12 +33,17 @@ class Segredos:
     gecko_api_key: str = ""
     gecko_fontes: tuple[str, ...] = ()
     gecko_fontes_desconhecidas: tuple[str, ...] = ()
+    entrega_intervalo: tuple[int, int] = ENTREGA_INTERVALO_PADRAO
+    entrega_intervalo_invalido: str | None = None
 
 
 @dataclass
 class Configuracao:
+    """filtros.yaml: quem é autorizado e, para quem ainda não tem cadastro, os filtros iniciais."""
+
     operador_chat_id: int
-    pessoas: list[Pessoa]
+    autorizados: dict[int, str | None]  # chat_id → nome no arquivo
+    sementes: list[Pessoa] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
 
 
@@ -57,7 +66,17 @@ def carregar_segredos() -> Segredos:
         migrations_path=Path(os.environ.get("MIGRATIONS_PATH", "migrations")),
         gecko_api_key=os.environ.get("GECKO_API_KEY", "").strip(),
         **_fontes_gecko(os.environ.get("GECKO_FONTES", "zap")),
+        **_entrega_intervalo(os.environ.get("ENTREGA_INTERVALO")),
     )
+
+
+def _entrega_intervalo(texto: str | None) -> dict[str, Any]:
+    if texto is None:
+        return {}
+    minimo, _, maximo = texto.strip().partition("-")
+    if minimo.isdigit() and maximo.isdigit() and 1 <= int(minimo) <= int(maximo) <= 3600:
+        return {"entrega_intervalo": (int(minimo), int(maximo))}
+    return {"entrega_intervalo_invalido": texto}
 
 
 def _fontes_gecko(texto: str) -> dict[str, tuple[str, ...]]:
@@ -79,9 +98,50 @@ def problemas_gecko(segredos: Segredos) -> list[str]:
     return problemas
 
 
+def problemas_entrega(segredos: Segredos) -> list[str]:
+    if segredos.entrega_intervalo_invalido is None:
+        return []
+    minimo, maximo = ENTREGA_INTERVALO_PADRAO
+    return [
+        f"ENTREGA_INTERVALO inválido '{segredos.entrega_intervalo_invalido}';"
+        f" usando {minimo}-{maximo}"
+    ]
+
+
+def _ler_catalogo(texto: str) -> tuple[Bairro, ...]:
+    bairros = tuple(
+        Bairro(slug=linha["slug"], nome=linha["nome"], regional=linha["regional"])
+        for linha in csv.DictReader(io.StringIO(texto))
+    )
+    vistos: set[str] = set()
+    for bairro in bairros:
+        if bairro.slug in vistos:
+            raise ValueError(f"bairro repetido no catálogo: {bairro.slug}")
+        if bairro.regional not in REGIONAIS:
+            raise ValueError(f"regional desconhecida para {bairro.slug}: {bairro.regional}")
+        vistos.add(bairro.slug)
+    return bairros
+
+
+@cache
+def catalogo_bairros() -> tuple[Bairro, ...]:
+    """dados/bairros_bh.csv: slug do QuintoAndar, nome oficial e regional (research R9 da 003)."""
+    texto = resources.files("apebot").joinpath("dados/bairros_bh.csv").read_text("utf-8")
+    return _ler_catalogo(texto)
+
+
+@cache
 def bairros_validos() -> frozenset[str]:
-    texto = resources.files("apebot").joinpath("dados/bairros_bh.txt").read_text("utf-8")
-    return frozenset(linha.strip() for linha in texto.splitlines() if linha.strip())
+    return frozenset(b.slug for b in catalogo_bairros())
+
+
+@cache
+def _nomes() -> dict[str, str]:
+    return {b.slug: b.nome for b in catalogo_bairros()}
+
+
+def nome_bairro(bairro_slug: str) -> str:
+    return _nomes().get(bairro_slug) or bairro_slug.replace("-", " ").title()
 
 
 def carregar_filtros(caminho: Path, bairros: frozenset[str]) -> Configuracao:
@@ -100,12 +160,17 @@ def carregar_filtros(caminho: Path, bairros: frozenset[str]) -> Configuracao:
         raise ConfiguracaoInvalida("operador_chat_id precisa estar em pessoas")
 
     problemas: list[str] = []
-    pessoas = []
+    autorizados = {e["chat_id"]: (str(e["nome"]) if e.get("nome") else None) for e in entradas}
+    sementes = []
     for entrada in entradas:
+        if not entrada.get("filtros"):
+            continue  # só autorizada: faz o cadastro pelo /start
         pessoa = _pessoa(entrada, bairros, problemas)
         if pessoa is not None:
-            pessoas.append(pessoa)
-    return Configuracao(operador_chat_id=operador, pessoas=pessoas, problemas=problemas)
+            sementes.append(pessoa)
+    return Configuracao(
+        operador_chat_id=operador, autorizados=autorizados, sementes=sementes, problemas=problemas
+    )
 
 
 def _pessoa(
@@ -116,11 +181,15 @@ def _pessoa(
 
     aluguel_max = filtros.get("aluguel_max")
     if not _inteiro(aluguel_max) or aluguel_max <= 0:
-        problemas.append(f"{nome}: aluguel_max inválido ({aluguel_max!r}); pessoa ignorada")
+        problemas.append(
+            f"{nome}: aluguel_max inválido ({aluguel_max!r}); filtros do arquivo ignorados"
+        )
         return None
     quartos_min = filtros.get("quartos_min", 0)
     if not _inteiro(quartos_min) or quartos_min < 0:
-        problemas.append(f"{nome}: quartos_min inválido ({quartos_min!r}); pessoa ignorada")
+        problemas.append(
+            f"{nome}: quartos_min inválido ({quartos_min!r}); filtros do arquivo ignorados"
+        )
         return None
 
     slugs = set()
@@ -130,7 +199,7 @@ def _pessoa(
         else:
             problemas.append(f"{nome}: bairro não reconhecido '{bairro}', ignorado")
     if not slugs:
-        problemas.append(f"{nome}: nenhum bairro válido; pessoa ignorada")
+        problemas.append(f"{nome}: nenhum bairro válido; filtros do arquivo ignorados")
         return None
 
     tipos = set()
@@ -140,7 +209,7 @@ def _pessoa(
         except ValueError:
             problemas.append(f"{nome}: tipo inválido '{tipo}', ignorado")
     if not tipos:
-        problemas.append(f"{nome}: nenhum tipo válido; pessoa ignorada")
+        problemas.append(f"{nome}: nenhum tipo válido; filtros do arquivo ignorados")
         return None
 
     return Pessoa(

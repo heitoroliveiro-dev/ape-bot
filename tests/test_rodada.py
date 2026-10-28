@@ -78,6 +78,9 @@ class BancoFalso:
     def finalizar_rodada(self, *args):
         self.gravado.append(("rodada", args))
 
+    def pessoas_ativas(self, autorizados):
+        return [PESSOA]
+
     def pessoas_registradas(self):
         return {PESSOA.chat_id: hash_filtros(PESSOA.filtro)}  # já passou da primeira rodada
 
@@ -114,7 +117,7 @@ class FilaFalsa:
 
 def _rodar(coletores):
     banco, fila = BancoFalso(), FilaFalsa()
-    config = Configuracao(operador_chat_id=PESSOA.chat_id, pessoas=[PESSOA])
+    config = Configuracao(operador_chat_id=PESSOA.chat_id, autorizados={PESSOA.chat_id: None})
     status = asyncio.run(Rodada(banco, fila, config, coletores).executar())
     return status, banco, fila
 
@@ -143,10 +146,12 @@ def test_rodada_entrega_zap_com_contato_e_botoes_sem_gravar_anunciante():
     assert "👤 Imobiliária Fictícia" in primeira.texto
     assert primeira.botoes == [
         [
-            "Abrir anúncio",
-            "https://www.zapimoveis.com.br/imovel/aluguel-apartamento-2-quartos-com-piscina-gutierrez-belo-horizonte-mg-80m2-id-2919519749/",
-        ],
-        ["WhatsApp", "https://wa.me/5531900000000"],
+            {
+                "t": "Abrir anúncio",
+                "u": "https://www.zapimoveis.com.br/imovel/aluguel-apartamento-2-quartos-com-piscina-gutierrez-belo-horizonte-mg-80m2-id-2919519749/",
+            },
+            {"t": "WhatsApp", "u": "https://wa.me/5531900000000"},
+        ]
     ]
     gravado = json.dumps(banco.gravado, ensure_ascii=False, default=str)
     assert "Imobiliária Fictícia" not in gravado and "3100000000" not in gravado

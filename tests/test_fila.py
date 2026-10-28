@@ -26,7 +26,10 @@ def test_botoes_sobrevivem_a_fila():
         tipo="imovel",
         texto="x",
         anuncio_ids=[("zap", "1")],
-        botoes=[["Abrir anúncio", "https://x"], ["WhatsApp", "https://wa.me/5531982984510"]],
+        botoes=[
+            [{"t": "Abrir anúncio", "u": "https://x"}, {"t": "WhatsApp", "u": "https://wa.me/55"}],
+            [{"t": "⭐ Salvar como favorito", "c": "f:zap:1"}],
+        ],
     )
     assert Mensagem.de_json(mensagem.para_json()) == mensagem
 

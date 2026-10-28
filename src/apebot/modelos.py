@@ -77,6 +77,20 @@ _DO_ZAP = {
 
 NOMES_FONTE = {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX"}
 
+# As 9 regionais da PBH, na ordem do teclado do cadastro; "Outros" junta os bairros sem regional.
+REGIONAIS = (
+    "Barreiro",
+    "Centro-Sul",
+    "Leste",
+    "Nordeste",
+    "Noroeste",
+    "Norte",
+    "Oeste",
+    "Pampulha",
+    "Venda Nova",
+    "Outros",
+)
+
 
 @dataclass(frozen=True)
 class Anuncio:
@@ -118,3 +132,10 @@ class Pessoa:
     chat_id: int
     nome: str
     filtro: Filtro
+
+
+@dataclass(frozen=True)
+class Bairro:
+    slug: str  # o do QuintoAndar; a URL de coleta e os filtros salvos dependem dele
+    nome: str
+    regional: str

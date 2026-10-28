@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from html import escape
 
+from apebot.config import nome_bairro
 from apebot.modelos import FUSO, HORARIOS_RODADA, NOMES_FONTE, Anuncio, Contato, Pessoa
 
 HORARIOS_TEXTO = ", ".join(f"{h:02d}" for h in HORARIOS_RODADA[:-1]) + (
@@ -11,16 +12,14 @@ HORARIOS_TEXTO = ", ".join(f"{h:02d}" for h in HORARIOS_RODADA[:-1]) + (
 
 
 def formatar_reais(centavos: int) -> str:
-    return "R$ " + f"{centavos // 100:,}".replace(",", ".")
-
-
-def _bairro_legivel(bairro_slug: str) -> str:
-    return bairro_slug.replace("-", " ").title()
+    """Sempre com centavos: R$ 3.000,00 (FR-029 da 003)."""
+    reais, resto = divmod(centavos, 100)
+    return f"R$ {reais:,}".replace(",", ".") + f",{resto:02d}"
 
 
 def _linha_filtros(pessoa: Pessoa) -> str:
     f = pessoa.filtro
-    bairros = ", ".join(sorted(_bairro_legivel(b) for b in f.bairros))
+    bairros = ", ".join(sorted(nome_bairro(b) for b in f.bairros))
     tipos = ", ".join(sorted(t.rotulo for t in f.tipos))
     return (
         f"Seus filtros: {escape(bairros)} · até {formatar_reais(f.aluguel_max_centavos)}"
@@ -157,11 +156,12 @@ def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
     return "\n".join(linhas)
 
 
-def botoes_imovel(anuncio: Anuncio, contato: Contato | None = None) -> list[list[str]]:
-    botoes = [["Abrir anúncio", anuncio.url]]
+def botoes_imovel(anuncio: Anuncio, contato: Contato | None = None) -> list[list[dict[str, str]]]:
+    """Linhas de botões: {"t": rótulo, "u": url} ou {"t": rótulo, "c": callback_data}."""
+    linha = [{"t": "Abrir anúncio", "u": anuncio.url}]
     if contato and contato.whatsapp_url:
-        botoes.append(["WhatsApp", contato.whatsapp_url])
-    return botoes
+        linha.append({"t": "WhatsApp", "u": contato.whatsapp_url})
+    return [linha]
 
 
 def resposta_padrao() -> str:

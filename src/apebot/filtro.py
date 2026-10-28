@@ -2,9 +2,14 @@ import hashlib
 import json
 from collections.abc import Iterable
 
-from apebot.modelos import Anuncio, Filtro, Pessoa
+from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
 
 Chave = tuple[str, str]
+
+# Regras do cadastro pelo Telegram (spec 003, FR-020 e FR-022)
+VALOR_MIN_CENTAVOS = 30_000
+VALOR_MAX_CENTAVOS = 5_000_000
+QUARTOS_OPCOES = (0, 1, 2, 3, 4)
 
 
 def aceita(filtro: Filtro, anuncio: Anuncio) -> bool:
@@ -52,3 +57,39 @@ def hash_filtros(filtro: Filtro) -> str:
         sort_keys=True,
     )
     return hashlib.sha256(canonico.encode()).hexdigest()
+
+
+def filtro_para_json(filtro: Filtro) -> dict:
+    """Formato de pessoa.filtros no MySQL (data-model.md da 003)."""
+    return {
+        "bairros": sorted(filtro.bairros),
+        "aluguel_max_centavos": filtro.aluguel_max_centavos,
+        "quartos_min": filtro.quartos_min,
+        "tipos": sorted(t.value for t in filtro.tipos),
+    }
+
+
+def filtro_de_json(dados: object, catalogo: frozenset[str]) -> Filtro | None:
+    """Filtro salvo → Filtro; None se estiver fora das regras do cadastro."""
+    if not isinstance(dados, dict):
+        return None
+    bairros, tipos = dados.get("bairros"), dados.get("tipos")
+    valor, quartos = dados.get("aluguel_max_centavos"), dados.get("quartos_min")
+    if not isinstance(bairros, list) or not bairros or not set(bairros) <= catalogo:
+        return None
+    if not isinstance(tipos, list) or not tipos:
+        return None
+    try:
+        tipos_validos = frozenset(Tipo(t) for t in tipos)
+    except ValueError:
+        return None
+    if type(quartos) is not int or quartos not in QUARTOS_OPCOES:
+        return None
+    if type(valor) is not int or not VALOR_MIN_CENTAVOS <= valor <= VALOR_MAX_CENTAVOS:
+        return None
+    return Filtro(
+        bairros=frozenset(bairros),
+        aluguel_max_centavos=valor,
+        quartos_min=quartos,
+        tipos=tipos_validos,
+    )

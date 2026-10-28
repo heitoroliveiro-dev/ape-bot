@@ -36,9 +36,11 @@ PESSOA = Pessoa(
 
 
 def test_formatar_reais():
-    assert formatar_reais(270_000) == "R$ 2.700"
-    assert formatar_reais(1_250_050) == "R$ 12.500"
-    assert formatar_reais(90_000) == "R$ 900"
+    assert formatar_reais(270_000) == "R$ 2.700,00"
+    assert formatar_reais(1_250_050) == "R$ 12.500,50"
+    assert formatar_reais(245_050) == "R$ 2.450,50"
+    assert formatar_reais(90_000) == "R$ 900,00"
+    assert formatar_reais(99) == "R$ 0,99"
 
 
 def test_confirmacao_start():
@@ -46,7 +48,7 @@ def test_confirmacao_start():
     assert texto.startswith(
         "Pronto, Heitor! Vou te avisar de imóveis novos às 06, 09, 12, 15, 18, 21 e 23h."
     )
-    assert "Seus filtros: Buritis, Santa Monica · até R$ 3.000 · 2+ quartos" in texto
+    assert "Seus filtros: Buritis, Santa Mônica · até R$ 3.000,00 · 2+ quartos" in texto
     assert "Apartamento" in texto and "Casa em condomínio" in texto
 
 
@@ -68,7 +70,7 @@ def test_mensagem_imovel():
     assert mensagem_imovel(ANUNCIO) == (
         "🏠 Apartamento · Buritis · QuintoAndar\n"
         "2 quartos · 70 m²\n"
-        "Aluguel: R$ 2.700 · Total: R$ 3.468"
+        "Aluguel: R$ 2.700,00 · Total: R$ 3.468,00"
     )
 
 
@@ -91,7 +93,7 @@ def test_mensagem_imovel_com_contato():
     assert mensagem_imovel(ZAP, CONTATO) == (
         "🏠 Apartamento · Gutierrez · Zap\n"
         "2 quartos · 70 m²\n"
-        "Aluguel: R$ 2.700 · Total: R$ 3.468\n"
+        "Aluguel: R$ 2.700,00 · Total: R$ 3.468,00\n"
         "👤 Imobiliária &lt;Teste&gt; &amp; Cia\n"
         "📞 (31) 98298-4510"
     )
@@ -104,13 +106,13 @@ def test_mensagem_imovel_com_contato_parcial():
 
 
 def test_botoes_imovel():
-    assert botoes_imovel(ZAP) == [["Abrir anúncio", ZAP.url]]
+    abrir = {"t": "Abrir anúncio", "u": ZAP.url}
+    assert botoes_imovel(ZAP) == [[abrir]]
     assert botoes_imovel(ZAP, CONTATO) == [
-        ["Abrir anúncio", ZAP.url],
-        ["WhatsApp", "https://wa.me/5531982984510"],
+        [abrir, {"t": "WhatsApp", "u": "https://wa.me/5531982984510"}]
     ]
     sem_whats = Contato(nome="X", telefone="31982984510", whatsapp_url=None)
-    assert botoes_imovel(ZAP, sem_whats) == [["Abrir anúncio", ZAP.url]]
+    assert botoes_imovel(ZAP, sem_whats) == [[abrir]]
 
 
 def test_mensagem_imovel_com_campos_ausentes():
@@ -147,7 +149,7 @@ def test_resumo_com_40_imoveis():
     assert texto.count("\n• ") + texto.count("• ") >= 40
     assert (
         texto.count(
-            "Buritis · 2q · R$ 2.700 · QuintoAndar · https://www.quintoandar.com.br/imovel/"
+            "Buritis · 2q · R$ 2.700,00 · QuintoAndar · https://www.quintoandar.com.br/imovel/"
         )
         == 40
     )
@@ -209,7 +211,7 @@ def test_texto_ajuda_lista_so_portais_ligados():
 
 def test_texto_filtros_ativo_e_pausado():
     ativo = texto_filtros(PESSOA, None, "Heitor")
-    assert ativo.startswith("Seus filtros: Buritis, Santa Monica · até R$ 3.000 · 2+ quartos")
+    assert ativo.startswith("Seus filtros: Buritis, Santa Mônica · até R$ 3.000,00 · 2+ quartos")
     assert "Avisos: ativos" in ativo
     assert ativo.endswith("Para mudar os filtros, fale com Heitor.")
     pausado = texto_filtros(PESSOA, datetime(2026, 10, 28, 15, 30), "Heitor")  # UTC no banco

@@ -16,6 +16,7 @@ from apebot.config import (
     bairros_validos,
     carregar_filtros,
     carregar_segredos,
+    problemas_entrega,
     problemas_gecko,
 )
 from apebot.fila import Fila, Mensagem
@@ -92,16 +93,16 @@ def _preparar_banco(segredos: Segredos, config: Configuracao) -> Banco:
             time.sleep(2)
     if novas:
         log.info("migracoes_aplicadas versoes=%s", ",".join(novas))
-    banco.sincronizar_pessoas(config.pessoas)
+    config.problemas.extend(banco.semear_pessoas(config.autorizados, config.sementes))
     return banco
 
 
 async def _rodada_agora(
     banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes
 ) -> None:
-    if not await asyncio.to_thread(banco.pessoas_registradas):
+    if not await asyncio.to_thread(banco.pessoas_ativas, config.autorizados):
         print(
-            "Nenhuma pessoa registrada. Mande /start ao bot com ele no ar e rode de novo.",
+            "Nenhuma pessoa ativa. Mande /start ao bot com ele no ar e rode de novo.",
             flush=True,
         )
         return
@@ -166,7 +167,7 @@ def main() -> None:
     args = _argumentos()
     segredos = carregar_segredos()
     config = carregar_filtros(segredos.filtros_path, bairros_validos())
-    config.problemas.extend(problemas_gecko(segredos))
+    config.problemas.extend(problemas_gecko(segredos) + problemas_entrega(segredos))
     for problema in config.problemas:
         log.warning("filtros_problema %s", problema)
     banco = _preparar_banco(segredos, config)

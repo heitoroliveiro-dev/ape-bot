@@ -24,7 +24,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-apebot = ["dados/*.txt"]
+apebot = ["dados/*.csv"]
 
 [tool.ruff]
 line-length = 100

@@ -105,10 +105,11 @@ class Rodada:
     async def _coletar_e_enfileirar(
         self, rodada_id: int, contagens: Counter[str], resultados: list[ResultadoFonte]
     ) -> tuple[str, str | None]:
+        # filtros lidos do MySQL no início da rodada: o que for salvo depois vale na próxima
+        pessoas = await asyncio.to_thread(self._banco.pessoas_ativas, self._config.autorizados)
         registradas = await asyncio.to_thread(self._banco.pessoas_registradas)
-        pessoas = [p for p in self._config.pessoas if p.chat_id in registradas]
         if not pessoas:
-            log.warning("rodada_sem_pessoas_registradas: peça /start ao bot")
+            log.warning("rodada_sem_pessoas_ativas: peça /start ao bot")
 
         for coletor in self._coletores:
             resultado = await self._coletar(coletor, pessoas)
@@ -142,7 +143,7 @@ class Rodada:
 
         for pessoa in pessoas:
             contagens["enfileirados"] += await self._enfileirar_para(
-                pessoa, anuncios, registradas[pessoa.chat_id], status
+                pessoa, anuncios, registradas.get(pessoa.chat_id), status
             )
         erros = [f"{r.fonte}: {r.erro}" for r in resultados if r.erro]
         return status, (erros[-1] if erros else None)

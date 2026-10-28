@@ -54,10 +54,8 @@ def registrar_handlers(
     fontes_ligadas: list[str],
     gecko: ClienteGecko | None = None,
 ) -> None:
-    pessoas = {p.chat_id: p for p in config.pessoas}
-    autorizados = set(pessoas) | {config.operador_chat_id}
-    operador = pessoas.get(config.operador_chat_id)
-    nome_operador = operador.nome if operador else "o operador"
+    autorizados = set(config.autorizados) | {config.operador_chat_id}
+    nome_operador = config.autorizados.get(config.operador_chat_id) or "o operador"
 
     async def responder(update: Update, texto: str) -> None:
         await update.effective_message.reply_text(
@@ -79,13 +77,12 @@ def registrar_handlers(
 
     async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        pessoa = pessoas.get(chat_id)
-        if pessoa is None:  # operador sem filtros válidos
-            await update.effective_message.reply_text("Você está sem filtros válidos.")
-            return
         await asyncio.to_thread(banco.registrar_pessoa, chat_id)
         log.info("pessoa_registrada chat_id=%s", chat_id)
-        pausada = await asyncio.to_thread(banco.pausada_em, chat_id)
+        pessoa, pausada, _ = await asyncio.to_thread(banco.pessoa, chat_id)
+        if pessoa is None:
+            await responder(update, SEM_FILTROS)
+            return
         await responder(update, confirmacao_start(pessoa, pausada=pausada is not None))
 
     async def ajuda(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,11 +90,10 @@ def registrar_handlers(
 
     async def ver_filtros(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        pessoa = pessoas.get(chat_id)
+        pessoa, pausada, _ = await asyncio.to_thread(banco.pessoa, chat_id)
         if pessoa is None:
             await responder(update, SEM_FILTROS)
             return
-        pausada = await asyncio.to_thread(banco.pausada_em, chat_id)
         await responder(update, texto_filtros(pessoa, pausada, nome_operador))
 
     async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,7 +115,7 @@ def registrar_handlers(
 
     async def pausar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        if chat_id not in pessoas:
+        if (await asyncio.to_thread(banco.pessoa, chat_id))[0] is None:
             await responder(update, SEM_FILTROS)
             return
         await asyncio.to_thread(banco.pausar, chat_id)
@@ -128,7 +124,7 @@ def registrar_handlers(
 
     async def retomar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        if chat_id not in pessoas:
+        if (await asyncio.to_thread(banco.pessoa, chat_id))[0] is None:
             await responder(update, SEM_FILTROS)
             return
         await asyncio.to_thread(banco.retomar, chat_id)
@@ -149,10 +145,16 @@ def registrar_handlers(
     app.add_handler(MessageHandler(filters.ALL, padrao))
 
 
-def _teclado(botoes: list[list[str]]) -> InlineKeyboardMarkup | None:
-    if not botoes:
+def _botao(botao: dict[str, str]) -> InlineKeyboardButton:
+    if "u" in botao:
+        return InlineKeyboardButton(botao["t"], url=botao["u"])
+    return InlineKeyboardButton(botao["t"], callback_data=botao["c"])
+
+
+def _teclado(linhas: list[list[dict[str, str]]]) -> InlineKeyboardMarkup | None:
+    if not linhas:
         return None
-    return InlineKeyboardMarkup([[InlineKeyboardButton(rotulo, url=url) for rotulo, url in botoes]])
+    return InlineKeyboardMarkup([[_botao(b) for b in linha] for linha in linhas])
 
 
 class Entregador:
