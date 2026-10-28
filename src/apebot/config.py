@@ -8,6 +8,8 @@ import yaml
 
 from apebot.modelos import Filtro, Pessoa, Tipo, slug
 
+FONTES_GECKO = ("zap", "olx")  # constituição 2.2.0: VivaReal excluído
+
 
 class ConfiguracaoInvalida(Exception):
     """Erro no filtros.yaml que impede o robô de subir."""
@@ -24,6 +26,9 @@ class Segredos:
     redis_url: str
     filtros_path: Path
     migrations_path: Path
+    gecko_api_key: str = ""
+    gecko_fontes: tuple[str, ...] = ()
+    gecko_fontes_desconhecidas: tuple[str, ...] = ()
 
 
 @dataclass
@@ -50,7 +55,28 @@ def carregar_segredos() -> Segredos:
         redis_url=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
         filtros_path=Path(os.environ.get("FILTROS_PATH", "filtros.yaml")),
         migrations_path=Path(os.environ.get("MIGRATIONS_PATH", "migrations")),
+        gecko_api_key=os.environ.get("GECKO_API_KEY", "").strip(),
+        **_fontes_gecko(os.environ.get("GECKO_FONTES", "zap")),
     )
+
+
+def _fontes_gecko(texto: str) -> dict[str, tuple[str, ...]]:
+    pedidas = [f.strip().lower() for f in texto.split(",") if f.strip()]
+    return {
+        "gecko_fontes": tuple(f for f in dict.fromkeys(pedidas) if f in FONTES_GECKO),
+        "gecko_fontes_desconhecidas": tuple(f for f in pedidas if f not in FONTES_GECKO),
+    }
+
+
+def problemas_gecko(segredos: Segredos) -> list[str]:
+    """Avisos ao operador na inicialização sobre a configuração das fontes pagas."""
+    problemas = [
+        f"GECKO_FONTES: valor desconhecido '{f}' ignorado"
+        for f in segredos.gecko_fontes_desconhecidas
+    ]
+    if segredos.gecko_fontes and not segredos.gecko_api_key:
+        problemas.append("GECKO_API_KEY ausente: Zap/OLX desligados")
+    return problemas
 
 
 def bairros_validos() -> frozenset[str]:

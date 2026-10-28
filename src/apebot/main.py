@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 from datetime import time as horario
+from functools import partial
 
 from telegram.ext import Application, ContextTypes
 
@@ -15,11 +16,15 @@ from apebot.config import (
     bairros_validos,
     carregar_filtros,
     carregar_segredos,
+    problemas_gecko,
 )
 from apebot.fila import Fila, Mensagem
-from apebot.mensagens import aviso_configuracao
-from apebot.modelos import FUSO, HORARIOS_RODADA
-from apebot.rodada import Rodada
+from apebot.fontes import olx, quintoandar, zap
+from apebot.fontes.geckoapi import ClienteGecko
+from apebot.fontes.resultado import ResultadoFonte
+from apebot.mensagens import COMANDOS, aviso_configuracao
+from apebot.modelos import FUSO, HORARIOS_RODADA, Pessoa
+from apebot.rodada import Coletor, Rodada
 from apebot.telegram_bot import Entregador, registrar_handlers
 
 log = logging.getLogger("apebot")
@@ -43,6 +48,37 @@ def _argumentos() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class Fontes:
+    """Coletores da rodada e o que o /status e o /ajuda precisam saber deles."""
+
+    def __init__(self, segredos: Segredos, banco: Banco, simular_falha: bool = False) -> None:
+        catalogo = bairros_validos()
+        self.gecko = ClienteGecko(segredos.gecko_api_key) if segredos.gecko_api_key else None
+        self.ligadas = ["quintoandar"]
+        self.coletores = [
+            Coletor("quintoandar", partial(quintoandar.coletar, simular_falha=simular_falha))
+        ]
+        for nome, modulo in (("zap", zap), ("olx", olx)):
+            # simulação de falha não gasta crédito: as fontes pagas ficam desligadas
+            if self.gecko is not None and nome in segredos.gecko_fontes and not simular_falha:
+                coletar = partial(_coletar_paga, modulo, self.gecko, banco, catalogo)
+                self.ligadas.append(nome)
+            else:
+                coletar = partial(_desligada, nome)
+            self.coletores.append(Coletor(nome, coletar))
+        log.info("fontes_ligadas %s", ",".join(self.ligadas))
+
+
+async def _coletar_paga(
+    modulo, gecko: ClienteGecko, banco: Banco, catalogo: frozenset[str], pessoas: list[Pessoa]
+) -> ResultadoFonte:
+    return await modulo.coletar(gecko, pessoas, banco, catalogo)
+
+
+async def _desligada(fonte: str, _pessoas: list[Pessoa]) -> ResultadoFonte:
+    return ResultadoFonte(fonte=fonte, status="desligada")
+
+
 def _preparar_banco(segredos: Segredos, config: Configuracao) -> Banco:
     banco = Banco(segredos)
     for tentativa in range(1, TENTATIVAS_BANCO + 1):
@@ -61,7 +97,7 @@ def _preparar_banco(segredos: Segredos, config: Configuracao) -> Banco:
 
 
 async def _rodada_agora(
-    banco: Banco, segredos: Segredos, config: Configuracao, simular_falha: bool
+    banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes
 ) -> None:
     if not await asyncio.to_thread(banco.pessoas_registradas):
         print(
@@ -71,7 +107,7 @@ async def _rodada_agora(
         return
     fila = Fila(segredos.redis_url)
     try:
-        status = await Rodada(banco, fila, config, simular_falha).executar()
+        status = await Rodada(banco, fila, config, fontes.coletores).executar()
         log.info("rodada_manual status=%s; aguardando o bot entregar a fila", status)
         limite = time.monotonic() + ESPERA_FILA_MAX_SEGUNDOS
         while await fila.tamanho() and time.monotonic() < limite:
@@ -81,7 +117,7 @@ async def _rodada_agora(
         await fila.fechar()
 
 
-def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao) -> None:
+def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: Fontes) -> None:
     fila = Fila(segredos.redis_url)
     tarefas: list[asyncio.Task] = []
 
@@ -94,6 +130,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao) -> None:
                     texto=aviso_configuracao(config.problemas),
                 )
             )
+        await app.bot.set_my_commands(COMANDOS)
         tarefas.append(asyncio.create_task(Entregador(app, fila, banco).executar()))
 
     async def ao_encerrar(_: Application) -> None:
@@ -102,7 +139,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao) -> None:
         await fila.fechar()
 
     async def rodada_agendada(_: ContextTypes.DEFAULT_TYPE) -> None:
-        await Rodada(banco, fila, config).executar()
+        await Rodada(banco, fila, config, fontes.coletores).executar()
 
     app = (
         Application.builder()
@@ -111,7 +148,7 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao) -> None:
         .post_shutdown(ao_encerrar)
         .build()
     )
-    registrar_handlers(app, config, banco)
+    registrar_handlers(app, config, banco, fontes.ligadas, fontes.gecko)
     for hora in HORARIOS_RODADA:
         app.job_queue.run_daily(
             rodada_agendada,
@@ -129,14 +166,17 @@ def main() -> None:
     args = _argumentos()
     segredos = carregar_segredos()
     config = carregar_filtros(segredos.filtros_path, bairros_validos())
+    config.problemas.extend(problemas_gecko(segredos))
     for problema in config.problemas:
         log.warning("filtros_problema %s", problema)
     banco = _preparar_banco(segredos, config)
 
+    fontes = Fontes(segredos, banco, simular_falha=args.simular_falha)
+
     if args.rodada_agora:
-        asyncio.run(_rodada_agora(banco, segredos, config, args.simular_falha))
+        asyncio.run(_rodada_agora(banco, segredos, config, fontes))
     else:
-        _rodar_bot(banco, segredos, config)
+        _rodar_bot(banco, segredos, config, fontes)
 
 
 if __name__ == "__main__":

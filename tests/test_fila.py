@@ -1,3 +1,5 @@
+import json
+
 from apebot.fila import TIMEOUT_CONSUMO_SEGUNDOS, Fila, Mensagem
 
 
@@ -16,3 +18,19 @@ def test_mensagem_ida_e_volta_em_json():
         tentativas=2,
     )
     assert Mensagem.de_json(original.para_json()) == original
+
+
+def test_botoes_sobrevivem_a_fila():
+    mensagem = Mensagem(
+        chat_id=1,
+        tipo="imovel",
+        texto="x",
+        anuncio_ids=[("zap", "1")],
+        botoes=[["Abrir anúncio", "https://x"], ["WhatsApp", "https://wa.me/5531982984510"]],
+    )
+    assert Mensagem.de_json(mensagem.para_json()) == mensagem
+
+
+def test_mensagem_antiga_sem_botoes():
+    antiga = json.dumps({"chat_id": 1, "tipo": "texto", "texto": "x", "anuncio_ids": []})
+    assert Mensagem.de_json(antiga).botoes == []

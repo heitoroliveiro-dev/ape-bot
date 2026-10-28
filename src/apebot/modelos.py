@@ -27,9 +27,17 @@ class Tipo(Enum):
     def rotulo(self) -> str:
         return _ROTULO[self]
 
+    @property
+    def zap_property_types(self) -> tuple[str, ...]:
+        return _ZAP_PROPERTY_TYPES[self]
+
     @classmethod
     def de_json(cls, tipo_json: str) -> "Tipo | None":
         return _DO_JSON.get(tipo_json)
+
+    @classmethod
+    def de_zap(cls, unit_type: str) -> "Tipo | None":
+        return _DO_ZAP.get(unit_type)
 
 
 _SLUG_URL = {
@@ -50,6 +58,24 @@ _DO_JSON = {
     "CasaCondominio": Tipo.CASA_CONDOMINIO,
     "StudioOuKitchenette": Tipo.KITNET,
 }
+# research R2 (002): tipos aceitos pela GeckoAPI no Zap e devolvidos em unitTypes
+_ZAP_PROPERTY_TYPES = {
+    Tipo.APARTAMENTO: ("apartment", "penthouse"),
+    Tipo.CASA: ("house", "two_story_house"),
+    Tipo.CASA_CONDOMINIO: ("condominium",),
+    Tipo.KITNET: ("kitnet", "flat"),
+}
+_DO_ZAP = {
+    "APARTMENT": Tipo.APARTAMENTO,
+    "PENTHOUSE": Tipo.APARTAMENTO,
+    "HOME": Tipo.CASA,
+    "TWO_STORY_HOUSE": Tipo.CASA,
+    "CONDOMINIUM": Tipo.CASA_CONDOMINIO,
+    "KITNET": Tipo.KITNET,
+    "FLAT": Tipo.KITNET,
+}
+
+NOMES_FONTE = {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX"}
 
 
 @dataclass(frozen=True)
@@ -68,6 +94,15 @@ class Anuncio:
     @property
     def chave(self) -> tuple[str, str]:
         return (self.fonte, self.id_externo)
+
+
+@dataclass(frozen=True)
+class Contato:
+    """Contato do anunciante: só em trânsito até a mensagem ser entregue; nunca vai ao banco."""
+
+    nome: str | None
+    telefone: str | None
+    whatsapp_url: str | None
 
 
 @dataclass(frozen=True)

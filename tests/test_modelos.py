@@ -1,6 +1,6 @@
 import pytest
 
-from apebot.modelos import Tipo, slug
+from apebot.modelos import NOMES_FONTE, Tipo, slug
 
 
 @pytest.mark.parametrize(
@@ -36,3 +36,31 @@ def test_tipo_json_desconhecido():
 
 def test_tipo_do_yaml():
     assert Tipo("casa_condominio") is Tipo.CASA_CONDOMINIO
+
+
+@pytest.mark.parametrize(
+    ("unit_type", "esperado"),
+    [
+        ("APARTMENT", Tipo.APARTAMENTO),
+        ("PENTHOUSE", Tipo.APARTAMENTO),
+        ("HOME", Tipo.CASA),
+        ("TWO_STORY_HOUSE", Tipo.CASA),
+        ("CONDOMINIUM", Tipo.CASA_CONDOMINIO),
+        ("KITNET", Tipo.KITNET),
+        ("FLAT", Tipo.KITNET),
+        ("ALLOTMENT_LAND", None),
+    ],
+)
+def test_tipo_do_zap(unit_type, esperado):
+    assert Tipo.de_zap(unit_type) is esperado
+
+
+def test_property_types_do_zap():
+    assert Tipo.APARTAMENTO.zap_property_types == ("apartment", "penthouse")
+    assert Tipo.CASA.zap_property_types == ("house", "two_story_house")
+    assert Tipo.CASA_CONDOMINIO.zap_property_types == ("condominium",)
+    assert Tipo.KITNET.zap_property_types == ("kitnet", "flat")
+
+
+def test_nomes_de_fonte():
+    assert NOMES_FONTE == {"quintoandar": "QuintoAndar", "zap": "Zap", "olx": "OLX"}

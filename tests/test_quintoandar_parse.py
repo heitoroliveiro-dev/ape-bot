@@ -6,6 +6,7 @@ import pytest
 
 from apebot.fontes.quintoandar import (
     FormatoInvalido,
+    PaginaIncompleta,
     bairro_confere,
     combinacoes,
     extrair,
@@ -153,3 +154,30 @@ def test_combinacoes_distintas_da_uniao_dos_filtros():
         ("buritis", Tipo.CASA),
         ("sion", Tipo.APARTAMENTO),
     ]
+
+
+def _sem_lista(html: str, total) -> str:
+    """Página real com a lista de ids removida. Formato visto em 28/10/2026 (4 a 5 de 63 páginas
+    por rodada, URLs diferentes a cada vez): `pages` sem "0", `total` ausente e `error: true`."""
+    inicio = '<script id="__NEXT_DATA__" type="application/json">'
+    antes, resto = html.split(inicio, 1)
+    corpo, depois = resto.split("</script>", 1)
+    dados = json.loads(corpo)
+    visiveis = dados["props"]["pageProps"]["initialState"]["search"]["visibleHouses"]
+    visiveis["pages"] = {}
+    visiveis["total"] = total
+    return f"{antes}{inicio}{json.dumps(dados)}</script>{depois}"
+
+
+def test_busca_sem_imoveis_e_pagina_vazia():
+    html = _sem_lista(_html("listagem-bairro-tipo-buritis-apartamento.html"), 0)
+    resultado = extrair(html, "buritis")
+    assert resultado.anuncios == []
+    assert not resultado.descartados
+
+
+@pytest.mark.parametrize("total", [32, None])
+def test_lista_nao_carregada_e_pagina_incompleta(total):
+    html = _sem_lista(_html("listagem-bairro-tipo-buritis-apartamento.html"), total)
+    with pytest.raises(PaginaIncompleta):
+        extrair(html, "buritis")

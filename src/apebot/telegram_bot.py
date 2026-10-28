@@ -1,12 +1,12 @@
-"""Bot do Telegram: whitelist, /start e worker que entrega a fila (research R7)."""
+"""Bot do Telegram: whitelist, comandos e worker que entrega a fila (R7 da 001, R10 da 002)."""
 
 import asyncio
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import redis.exceptions
-from telegram import LinkPreviewOptions, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Update
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, RetryAfter, TelegramError
 from telegram.ext import (
@@ -22,7 +22,21 @@ from telegram.ext import (
 from apebot.banco import Banco
 from apebot.config import Configuracao
 from apebot.fila import Fila, Mensagem
-from apebot.mensagens import confirmacao_start, mensagem_imovel, resposta_padrao
+from apebot.fontes.geckoapi import ClienteGecko, ErroGecko
+from apebot.mensagens import (
+    SEM_FILTROS,
+    TEXTO_PAUSADO,
+    TEXTO_RETOMADO,
+    botoes_imovel,
+    confirmacao_start,
+    mensagem_imovel,
+    proxima_rodada,
+    resposta_padrao,
+    texto_ajuda,
+    texto_filtros,
+    texto_status,
+)
+from apebot.modelos import FUSO
 
 log = logging.getLogger(__name__)
 
@@ -33,9 +47,22 @@ PENDENTE_ANTIGO_MINUTOS = 10
 SEM_PREVIA = LinkPreviewOptions(is_disabled=True)
 
 
-def registrar_handlers(app: Application, config: Configuracao, banco: Banco) -> None:
+def registrar_handlers(
+    app: Application,
+    config: Configuracao,
+    banco: Banco,
+    fontes_ligadas: list[str],
+    gecko: ClienteGecko | None = None,
+) -> None:
     pessoas = {p.chat_id: p for p in config.pessoas}
     autorizados = set(pessoas) | {config.operador_chat_id}
+    operador = pessoas.get(config.operador_chat_id)
+    nome_operador = operador.nome if operador else "o operador"
+
+    async def responder(update: Update, texto: str) -> None:
+        await update.effective_message.reply_text(
+            texto, parse_mode=ParseMode.HTML, link_preview_options=SEM_PREVIA
+        )
 
     async def barrar_nao_autorizados(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         chat = update.effective_chat
@@ -58,16 +85,74 @@ def registrar_handlers(app: Application, config: Configuracao, banco: Banco) -> 
             return
         await asyncio.to_thread(banco.registrar_pessoa, chat_id)
         log.info("pessoa_registrada chat_id=%s", chat_id)
-        await update.effective_message.reply_text(
-            confirmacao_start(pessoa), parse_mode=ParseMode.HTML
+        pausada = await asyncio.to_thread(banco.pausada_em, chat_id)
+        await responder(update, confirmacao_start(pessoa, pausada=pausada is not None))
+
+    async def ajuda(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        await responder(update, texto_ajuda(fontes_ligadas))
+
+    async def ver_filtros(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        pessoa = pessoas.get(chat_id)
+        if pessoa is None:
+            await responder(update, SEM_FILTROS)
+            return
+        pausada = await asyncio.to_thread(banco.pausada_em, chat_id)
+        await responder(update, texto_filtros(pessoa, pausada, nome_operador))
+
+    async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        ultima = await asyncio.to_thread(banco.ultima_rodada)
+        estados = await asyncio.to_thread(banco.estados_fonte)
+        recebidos = await asyncio.to_thread(banco.recebidos_24h, chat_id)
+        creditos: dict | str | None = None
+        if chat_id == config.operador_chat_id and gecko is not None:
+            try:
+                creditos = await gecko.creditos()
+            except (ErroGecko, ValueError) as erro:
+                log.warning("creditos_indisponiveis erro=%s", erro)
+                creditos = "indisponível"
+        texto = texto_status(
+            ultima, proxima_rodada(datetime.now(FUSO)), recebidos, estados, fontes_ligadas, creditos
         )
+        await responder(update, texto)
+
+    async def pausar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        if chat_id not in pessoas:
+            await responder(update, SEM_FILTROS)
+            return
+        await asyncio.to_thread(banco.pausar, chat_id)
+        log.info("avisos_pausados chat_id=%s", chat_id)
+        await responder(update, TEXTO_PAUSADO)
+
+    async def retomar(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        if chat_id not in pessoas:
+            await responder(update, SEM_FILTROS)
+            return
+        await asyncio.to_thread(banco.retomar, chat_id)
+        log.info("avisos_retomados chat_id=%s", chat_id)
+        await responder(update, TEXTO_RETOMADO)
 
     async def padrao(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(resposta_padrao())
 
     app.add_handler(TypeHandler(Update, barrar_nao_autorizados), group=-1)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("ajuda", ajuda))
+    app.add_handler(CommandHandler("help", ajuda))
+    app.add_handler(CommandHandler("filtros", ver_filtros))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("pausar", pausar))
+    app.add_handler(CommandHandler("retomar", retomar))
     app.add_handler(MessageHandler(filters.ALL, padrao))
+
+
+def _teclado(botoes: list[list[str]]) -> InlineKeyboardMarkup | None:
+    if not botoes:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton(rotulo, url=url) for rotulo, url in botoes]])
 
 
 class Entregador:
@@ -88,8 +173,9 @@ class Entregador:
                 Mensagem(
                     chat_id=chat_id,
                     tipo="imovel",
-                    texto=mensagem_imovel(anuncio),
+                    texto=mensagem_imovel(anuncio),  # sem contato: ele não fica no banco
                     anuncio_ids=[anuncio.chave],
+                    botoes=botoes_imovel(anuncio),
                 )
             )
         if pendentes:
@@ -119,7 +205,11 @@ class Entregador:
         await self._esperar_vez(m.chat_id)
         try:
             await self._bot.send_message(
-                m.chat_id, m.texto, parse_mode=ParseMode.HTML, link_preview_options=SEM_PREVIA
+                m.chat_id,
+                m.texto,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=SEM_PREVIA,
+                reply_markup=_teclado(m.botoes),
             )
         except RetryAfter as erro:
             espera = erro.retry_after

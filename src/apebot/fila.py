@@ -18,6 +18,7 @@ class Mensagem:
     texto: str
     anuncio_ids: list[tuple[str, str]] = field(default_factory=list)
     tentativas: int = 0
+    botoes: list[list[str]] = field(default_factory=list)  # [rótulo, url]
 
     def para_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)

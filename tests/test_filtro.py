@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from apebot.filtro import aceita, hash_filtros, novos_para
+from apebot.filtro import aceita, filtros_somados, hash_filtros, novos_para
 from apebot.modelos import Anuncio, Filtro, Pessoa, Tipo
 
 FILTRO = Filtro(
@@ -90,3 +90,27 @@ def test_hash_filtros_estavel_e_sensivel_a_mudancas():
         replace(FILTRO, tipos=frozenset({Tipo.APARTAMENTO, Tipo.CASA})),
     ):
         assert hash_filtros(alterado) != hash_filtros(FILTRO)
+
+
+def test_filtros_somados():
+    outra = Pessoa(
+        chat_id=2,
+        nome="Ana",
+        filtro=Filtro(
+            bairros=frozenset({"sion"}),
+            aluguel_max_centavos=250_000,
+            quartos_min=1,
+            tipos=frozenset({Tipo.CASA}),
+        ),
+    )
+    somado = filtros_somados([Pessoa(chat_id=1, nome="H", filtro=FILTRO), outra])
+    assert somado == Filtro(
+        bairros=frozenset({"buritis", "funcionarios", "sion"}),
+        aluguel_max_centavos=300_000,
+        quartos_min=1,
+        tipos=frozenset({Tipo.APARTAMENTO, Tipo.CASA}),
+    )
+
+
+def test_filtros_somados_sem_pessoas():
+    assert filtros_somados([]) is None

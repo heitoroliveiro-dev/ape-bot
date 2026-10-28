@@ -28,6 +28,19 @@ def novos_para(
     return novos
 
 
+def filtros_somados(pessoas: Iterable[Pessoa]) -> Filtro | None:
+    """Um filtro que aceita tudo o que alguma pessoa aceitaria (consulta única às fontes pagas)."""
+    filtros = [p.filtro for p in pessoas]
+    if not filtros:
+        return None
+    return Filtro(
+        bairros=frozenset().union(*(f.bairros for f in filtros)),
+        aluguel_max_centavos=max(f.aluguel_max_centavos for f in filtros),
+        quartos_min=min(f.quartos_min for f in filtros),
+        tipos=frozenset().union(*(f.tipos for f in filtros)),
+    )
+
+
 def hash_filtros(filtro: Filtro) -> str:
     canonico = json.dumps(
         {

@@ -1,51 +1,81 @@
-"""Uma rodada: coleta → banco → filtro → fila → registro e alerta (research R9, R10)."""
+"""Uma rodada: coleta por fonte → banco → filtro → fila → registro e alerta.
+
+Research R9/R10 da 001 e R7/R8 da 002: cada fonte é coletada isoladamente e registrada em
+rodada_fonte; o alerta é por fonte; o contato do anunciante só vive em memória e na fila.
+"""
 
 import asyncio
 import logging
 from collections import Counter
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from apebot.banco import Banco, agora
 from apebot.config import Configuracao
 from apebot.fila import Fila, Mensagem
 from apebot.filtro import hash_filtros, novos_para
-from apebot.fontes.quintoandar import buscar_paginas, combinacoes
-from apebot.mensagens import aviso_falha, aviso_recuperacao, mensagem_imovel, mensagens_resumo
-from apebot.modelos import FUSO, Anuncio, Pessoa
+from apebot.fontes.resultado import ResultadoFonte, status_rodada
+from apebot.mensagens import (
+    aviso_falha,
+    aviso_recuperacao,
+    botoes_imovel,
+    mensagem_imovel,
+    mensagens_resumo,
+)
+from apebot.modelos import FUSO, Anuncio, Contato, Pessoa
+
+__all__ = ["Coletor", "Rodada", "decidir_alerta", "status_rodada"]
 
 log = logging.getLogger(__name__)
 
 FALHAS_PARA_ALERTA = 3
 REAVISO = timedelta(hours=24)
 
+Chave = tuple[str, str]
 
-def status_rodada(paginas_ok: int, paginas_erro: int, erro_de_formato: bool) -> str:
-    if erro_de_formato:
-        return "falha"
-    total = paginas_ok + paginas_erro
-    if total and paginas_erro * 2 >= total:
-        return "falha"
-    return "ok"
+
+@dataclass(frozen=True)
+class Coletor:
+    fonte: str
+    coletar: Callable[[list[Pessoa]], Awaitable[ResultadoFonte]]
+
+
+def decidir_alerta(
+    status: str, seguidas: int, ultimo_aviso: datetime | None, momento: datetime
+) -> str:
+    """abrir | reavisar | recuperar | nada. `ultimo_aviso` é None quando não há alerta aberto."""
+    if status == "ok":
+        return "recuperar" if ultimo_aviso is not None else "nada"
+    if status != "falha":  # desligada ou sem_credito (este avisa na hora)
+        return "nada"
+    if ultimo_aviso is not None:
+        return "reavisar" if momento - ultimo_aviso >= REAVISO else "nada"
+    return "abrir" if seguidas >= FALHAS_PARA_ALERTA else "nada"
 
 
 class Rodada:
     def __init__(
-        self, banco: Banco, fila: Fila, config: Configuracao, simular_falha: bool = False
+        self, banco: Banco, fila: Fila, config: Configuracao, coletores: list[Coletor]
     ) -> None:
         self._banco = banco
         self._fila = fila
         self._config = config
-        self._simular_falha = simular_falha
+        self._coletores = coletores
+        self._contatos: dict[Chave, Contato] = {}
 
     async def executar(self) -> str:
         rodada_id = await asyncio.to_thread(self._banco.iniciar_rodada)
         contagens: Counter[str] = Counter()
+        resultados: list[ResultadoFonte] = []
         status, erro_resumo = "falha", None
         try:
-            status, erro_resumo = await self._coletar_e_enfileirar(contagens)
+            status, erro_resumo = await self._coletar_e_enfileirar(rodada_id, contagens, resultados)
         except Exception as erro:  # a rodada nunca derruba o robô (FR-017)
             log.exception("rodada_erro_inesperado rodada=%d", rodada_id)
             status, erro_resumo = "falha", f"inesperado: {erro!r}"
+        finally:
+            self._contatos = {}  # contato do anunciante não sobrevive à rodada
         await asyncio.to_thread(
             self._banco.finalizar_rodada, rodada_id, status, dict(contagens), erro_resumo
         )
@@ -56,36 +86,65 @@ class Rodada:
             " ".join(f"{k}={v}" for k, v in contagens.items()),
             erro_resumo,
         )
-        try:
-            await self._avaliar_alerta(status, erro_resumo)
-        except Exception:
-            log.exception("alerta_erro rodada=%d", rodada_id)
+        for resultado in resultados:
+            try:
+                await self._avaliar_alerta(resultado)
+            except Exception:
+                log.exception("alerta_erro rodada=%d fonte=%s", rodada_id, resultado.fonte)
         return status
 
-    async def _coletar_e_enfileirar(self, contagens: Counter[str]) -> tuple[str, str | None]:
+    async def _coletar(self, coletor: Coletor, pessoas: list[Pessoa]) -> ResultadoFonte:
+        try:
+            return await coletor.coletar(pessoas)
+        except Exception as erro:  # falha de uma fonte não impede as outras (FR-010)
+            log.exception("fonte_erro_inesperado fonte=%s", coletor.fonte)
+            return ResultadoFonte(
+                fonte=coletor.fonte, status="falha", consultas_erro=1, erro=f"inesperado: {erro!r}"
+            )
+
+    async def _coletar_e_enfileirar(
+        self, rodada_id: int, contagens: Counter[str], resultados: list[ResultadoFonte]
+    ) -> tuple[str, str | None]:
         registradas = await asyncio.to_thread(self._banco.pessoas_registradas)
         pessoas = [p for p in self._config.pessoas if p.chat_id in registradas]
         if not pessoas:
             log.warning("rodada_sem_pessoas_registradas: peça /start ao bot")
-        paginas = await buscar_paginas(combinacoes(pessoas), self._simular_falha)
 
-        anuncios = [a for pagina in paginas for a in pagina.anuncios]
-        erros = [pagina.erro for pagina in paginas if pagina.erro]
-        contagens["paginas_ok"] = len(paginas) - len(erros)
-        contagens["paginas_erro"] = len(erros)
+        for coletor in self._coletores:
+            resultado = await self._coletar(coletor, pessoas)
+            resultados.append(resultado)
+            await asyncio.to_thread(self._banco.registrar_fonte, rodada_id, resultado)
+            log.info(
+                "fonte_fim fonte=%s status=%s consultas=%d anuncios=%d descartados=%s erro=%s",
+                resultado.fonte,
+                resultado.status,
+                resultado.consultas,
+                len(resultado.anuncios),
+                dict(resultado.descartados),
+                resultado.erro,
+            )
+            if resultado.aviso_operador:
+                await self._avisar_operador(resultado.aviso_operador)
+
+        anuncios = [a for r in resultados for a in r.anuncios]
+        for r in resultados:
+            self._contatos.update(r.contatos)
+        consultas = sum(r.consultas for r in resultados)
+        consultas_erro = sum(r.consultas_erro for r in resultados)
+        contagens["paginas_ok"] = consultas - consultas_erro
+        contagens["paginas_erro"] = consultas_erro
         contagens["anuncios_vistos"] = len(anuncios)
-        contagens["descartados"] = sum(sum(p.descartados.values()) for p in paginas)
-        status = status_rodada(
-            contagens["paginas_ok"],
-            contagens["paginas_erro"],
-            any(p.erro_de_formato for p in paginas),
-        )
+        contagens["descartados"] = sum(sum(r.descartados.values()) for r in resultados)
+        # o status da rodada (e a decisão de mandar resumo) continua vindo do QuintoAndar
+        principal = next((r for r in resultados if r.fonte == "quintoandar"), None)
+        status = "falha" if principal and principal.status == "falha" else "ok"
         contagens["anuncios_novos"] = await asyncio.to_thread(self._banco.salvar_anuncios, anuncios)
 
         for pessoa in pessoas:
             contagens["enfileirados"] += await self._enfileirar_para(
                 pessoa, anuncios, registradas[pessoa.chat_id], status
             )
+        erros = [f"{r.fonte}: {r.erro}" for r in resultados if r.erro]
         return status, (erros[-1] if erros else None)
 
     async def _enfileirar_para(
@@ -121,34 +180,34 @@ class Rodada:
             return len(partes)
 
         for anuncio in novos:
+            contato = self._contatos.get(anuncio.chave)
             await self._fila.enfileirar(
                 Mensagem(
                     chat_id=pessoa.chat_id,
                     tipo="imovel",
-                    texto=mensagem_imovel(anuncio),
+                    texto=mensagem_imovel(anuncio, contato),
                     anuncio_ids=[anuncio.chave],
+                    botoes=botoes_imovel(anuncio, contato),
                 )
             )
         return len(novos)
 
-    async def _avaliar_alerta(self, status: str, erro_resumo: str | None) -> None:
-        aberto = await asyncio.to_thread(self._banco.alerta_aberto)
-        if status == "ok":
-            if aberto:
-                await asyncio.to_thread(self._banco.fechar_alerta, aberto[0])
-                await self._avisar_operador(aviso_recuperacao(datetime.now(FUSO)))
+    async def _avaliar_alerta(self, resultado: ResultadoFonte) -> None:
+        fonte = resultado.fonte
+        aberto = await asyncio.to_thread(self._banco.alerta_aberto, fonte)
+        seguidas = await asyncio.to_thread(self._banco.seguidas_com_falha, fonte)
+        decisao = decidir_alerta(resultado.status, seguidas, aberto[1] if aberto else None, agora())
+        if decisao == "abrir":
+            await asyncio.to_thread(self._banco.abrir_alerta, fonte)
+        elif decisao == "reavisar":
+            await asyncio.to_thread(self._banco.registrar_aviso, aberto[0])
+        elif decisao == "recuperar":
+            await asyncio.to_thread(self._banco.fechar_alerta, aberto[0])
+            await self._avisar_operador(aviso_recuperacao(fonte, datetime.now(FUSO)))
             return
-
-        ultimas = await asyncio.to_thread(self._banco.ultimas_rodadas, 50)
-        seguidas = next((i for i, (s, _) in enumerate(ultimas) if s != "falha"), len(ultimas))
-        if aberto:
-            alerta_id, ultimo_aviso = aberto
-            if agora() - ultimo_aviso >= REAVISO:
-                await asyncio.to_thread(self._banco.registrar_aviso, alerta_id)
-                await self._avisar_operador(aviso_falha(seguidas, erro_resumo))
-        elif seguidas >= FALHAS_PARA_ALERTA:
-            await asyncio.to_thread(self._banco.abrir_alerta)
-            await self._avisar_operador(aviso_falha(seguidas, erro_resumo))
+        else:
+            return
+        await self._avisar_operador(aviso_falha(fonte, seguidas, resultado.erro))
 
     async def _avisar_operador(self, texto: str) -> None:
         await self._fila.enfileirar(

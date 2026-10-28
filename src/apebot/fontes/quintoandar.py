@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 import httpx
 from bs4 import BeautifulSoup
 
+from apebot.fontes.resultado import ResultadoFonte, status_rodada
 from apebot.modelos import Anuncio, Pessoa, Tipo, slug
 
 log = logging.getLogger(__name__)
@@ -31,6 +32,14 @@ class ErroDeAcesso(Exception):
 
 class FormatoInvalido(Exception):
     """A página não tem o JSON esperado: o portal mudou de formato."""
+
+
+class PaginaIncompleta(Exception):
+    """A página veio sem a lista de imóveis carregada, mas o portal diz que há imóveis.
+
+    Visto em 28/10/2026 (5 de 63 páginas; as mesmas URLs vieram completas minutos depois):
+    é falha passageira de acesso, não mudança de formato.
+    """
 
 
 @dataclass
@@ -70,9 +79,19 @@ def extrair(html: str, bairro_slug: str) -> ResultadoParse:
     try:
         estado = json.loads(script.string)["props"]["pageProps"]["initialState"]
         casas = estado["houses"]
-        ids = estado["search"]["visibleHouses"]["pages"]["0"]
+        visiveis = estado["search"]["visibleHouses"]
+        paginas = visiveis["pages"]
     except (json.JSONDecodeError, KeyError, TypeError) as erro:
         raise FormatoInvalido(f"JSON sem o caminho esperado: {erro!r}") from erro
+    if not isinstance(paginas, dict) or "0" not in paginas:
+        if visiveis.get("total") == 0:
+            return ResultadoParse(anuncios=[])  # busca sem nenhum imóvel
+        raise PaginaIncompleta(
+            f"lista não carregada (total={visiveis.get('total')!r},"
+            f" searched={visiveis.get('searched')!r}, error={visiveis.get('error')!r},"
+            f" loading={visiveis.get('loading')!r})"
+        )
+    ids = paginas["0"]
 
     resultado = ResultadoParse(anuncios=[])
     for id_externo in ids:
@@ -117,6 +136,26 @@ def _com_bairro_slug(anuncio: Anuncio, bairro_slug: str) -> Anuncio:
     return replace(anuncio, bairro_slug=bairro_slug)
 
 
+async def coletar(pessoas: list[Pessoa], simular_falha: bool = False) -> ResultadoFonte:
+    """Todas as páginas (bairro, tipo) das pessoas, consolidadas como uma fonte."""
+    paginas = await buscar_paginas(combinacoes(pessoas), simular_falha)
+    erros = [p.erro for p in paginas if p.erro]
+    resultado = ResultadoFonte(
+        fonte=FONTE,
+        anuncios=[a for p in paginas for a in p.anuncios],
+        consultas=len(paginas),
+        consultas_erro=len(erros),
+        erro=erros[-1] if erros else None,
+        erro_de_formato=any(p.erro_de_formato for p in paginas),
+    )
+    for pagina in paginas:
+        resultado.descartados.update(pagina.descartados)
+    resultado.status = status_rodada(
+        len(paginas) - len(erros), len(erros), resultado.erro_de_formato
+    )
+    return resultado
+
+
 async def buscar_paginas(
     pares: list[tuple[str, Tipo]], simular_falha: bool = False
 ) -> list[ResultadoPagina]:
@@ -144,8 +183,15 @@ async def _buscar_pagina(
         return pagina
     try:
         html = await _get_com_backoff(cliente, url)
-        parse = extrair(html, bairro_slug)
+        try:
+            parse = extrair(html, bairro_slug)
+        except PaginaIncompleta as erro:  # passageira: uma nova tentativa, com o intervalo normal
+            log.info("pagina_incompleta url=%s %s; tentando de novo", url, erro)
+            await asyncio.sleep(random.uniform(*INTERVALO_SEGUNDOS))
+            parse = extrair(await _get_com_backoff(cliente, url), bairro_slug)
         pagina.anuncios, pagina.descartados = parse.anuncios, parse.descartados
+    except PaginaIncompleta as erro:
+        pagina.erro = f"acesso: {erro}"
     except FormatoInvalido as erro:
         pagina.erro, pagina.erro_de_formato = f"formato: {erro}", True
     except (httpx.HTTPError, ErroDeAcesso) as erro:

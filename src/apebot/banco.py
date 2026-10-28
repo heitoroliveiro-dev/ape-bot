@@ -11,6 +11,7 @@ import pymysql
 
 from apebot.config import Segredos
 from apebot.fontes.geckoapi import RespostaGecko
+from apebot.fontes.resultado import ResultadoFonte
 from apebot.modelos import Anuncio, Pessoa, Tipo
 
 log = logging.getLogger(__name__)
@@ -87,10 +88,35 @@ class Banco:
             )
 
     def pessoas_registradas(self) -> dict[int, str | None]:
-        """chat_id → filtros_hash das pessoas que já enviaram /start."""
+        """chat_id → filtros_hash das pessoas que já enviaram /start e não estão pausadas."""
         with self._cursor() as c:
-            c.execute("SELECT chat_id, filtros_hash FROM pessoa WHERE registrada_em IS NOT NULL")
+            c.execute(
+                "SELECT chat_id, filtros_hash FROM pessoa"
+                " WHERE registrada_em IS NOT NULL AND pausada_em IS NULL"
+            )
             return {chat_id: filtros_hash for chat_id, filtros_hash in c.fetchall()}
+
+    def pausar(self, chat_id: int) -> None:
+        with self._cursor() as c:
+            c.execute(
+                "UPDATE pessoa SET pausada_em = %s WHERE chat_id = %s AND pausada_em IS NULL",
+                (agora(), chat_id),
+            )
+
+    def retomar(self, chat_id: int) -> None:
+        """Limpar o filtros_hash faz a próxima rodada mandar um resumo (research R9 da 002)."""
+        with self._cursor() as c:
+            c.execute(
+                "UPDATE pessoa SET pausada_em = NULL, filtros_hash = NULL"
+                " WHERE chat_id = %s AND pausada_em IS NOT NULL",
+                (chat_id,),
+            )
+
+    def pausada_em(self, chat_id: int) -> datetime | None:
+        with self._cursor() as c:
+            c.execute("SELECT pausada_em FROM pessoa WHERE chat_id = %s", (chat_id,))
+            linha = c.fetchone()
+            return linha[0] if linha else None
 
     def atualizar_filtros_hash(self, chat_id: int, filtros_hash: str) -> None:
         with self._cursor() as c:
@@ -228,34 +254,81 @@ class Banco:
                 ),
             )
 
-    def ultimas_rodadas(self, n: int) -> list[tuple[str, str | None]]:
-        """(status, erro_resumo) das n últimas rodadas terminadas, mais recente primeiro."""
+    def registrar_fonte(self, rodada_id: int, resultado: ResultadoFonte) -> None:
         with self._cursor() as c:
             c.execute(
-                "SELECT status, erro_resumo FROM rodada WHERE status IS NOT NULL"
-                " ORDER BY id DESC LIMIT %s",
-                (n,),
+                "INSERT INTO rodada_fonte (rodada_id, fonte, status, consultas, anuncios_vistos,"
+                " descartados, fora_da_cidade, erro_resumo)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    rodada_id,
+                    resultado.fonte,
+                    resultado.status,
+                    resultado.consultas,
+                    len(resultado.anuncios),
+                    sum(resultado.descartados.values()),
+                    resultado.descartados["fora_da_cidade"],
+                    (resultado.erro or "")[:500] or None,
+                ),
             )
-            return list(c.fetchall())
 
-    def alerta_aberto(self) -> tuple[int, datetime] | None:
-        """(id, ultimo_aviso_em) do alerta aberto, se houver."""
+    def seguidas_com_falha(self, fonte: str, n: int = 50) -> int:
+        """Rodadas seguidas com falha na fonte, da mais recente para trás (sem 'desligada')."""
         with self._cursor() as c:
             c.execute(
-                "SELECT id, ultimo_aviso_em FROM alerta WHERE fechado_em IS NULL"
-                " ORDER BY id DESC LIMIT 1"
+                "SELECT status FROM rodada_fonte WHERE fonte = %s AND status <> 'desligada'"
+                " ORDER BY rodada_id DESC LIMIT %s",
+                (fonte, n),
+            )
+            estados = [linha[0] for linha in c.fetchall()]
+        return next((i for i, s in enumerate(estados) if s != "falha"), len(estados))
+
+    def alerta_aberto(self, fonte: str) -> tuple[int, datetime] | None:
+        """(id, ultimo_aviso_em) do alerta aberto desta fonte, se houver."""
+        with self._cursor() as c:
+            c.execute(
+                "SELECT id, ultimo_aviso_em FROM alerta WHERE fonte = %s AND fechado_em IS NULL"
+                " ORDER BY id DESC LIMIT 1",
+                (fonte,),
             )
             linha = c.fetchone()
             return (int(linha[0]), linha[1]) if linha else None
 
-    def abrir_alerta(self) -> int:
+    def abrir_alerta(self, fonte: str) -> int:
         momento = agora()
         with self._cursor() as c:
             c.execute(
-                "INSERT INTO alerta (aberto_em, ultimo_aviso_em) VALUES (%s, %s)",
-                (momento, momento),
+                "INSERT INTO alerta (fonte, aberto_em, ultimo_aviso_em) VALUES (%s, %s, %s)",
+                (fonte, momento, momento),
             )
             return int(c.lastrowid)
+
+    # consultas do /status -------------------------------------------------
+
+    def ultima_rodada(self) -> datetime | None:
+        with self._cursor() as c:
+            c.execute("SELECT MAX(terminada_em) FROM rodada")
+            linha = c.fetchone()
+            return linha[0] if linha else None
+
+    def estados_fonte(self) -> dict[str, tuple[str, str | None]]:
+        """fonte → (status, erro_resumo) da última rodada em que a fonte aparece."""
+        with self._cursor() as c:
+            c.execute(
+                "SELECT rf.fonte, rf.status, rf.erro_resumo FROM rodada_fonte rf"
+                " JOIN (SELECT fonte, MAX(rodada_id) AS ultima FROM rodada_fonte GROUP BY fonte) u"
+                " ON rf.fonte = u.fonte AND rf.rodada_id = u.ultima"
+            )
+            return {fonte: (status, erro) for fonte, status, erro in c.fetchall()}
+
+    def recebidos_24h(self, chat_id: int) -> int:
+        with self._cursor() as c:
+            c.execute(
+                "SELECT COUNT(*) FROM envio"
+                " WHERE chat_id = %s AND status = 'entregue' AND entregue_em >= %s",
+                (chat_id, agora() - timedelta(hours=24)),
+            )
+            return int(c.fetchone()[0])
 
     def registrar_aviso(self, alerta_id: int) -> None:
         with self._cursor() as c:

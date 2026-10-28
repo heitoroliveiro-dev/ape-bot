@@ -52,8 +52,8 @@ ignorando `desligada`, até a primeira que não seja `falha`. Os alertas antigos
 `rodada_fonte`. `descartados` passa a somar todas as fontes.
 
 ## resposta_fonte (migração 002, já aplicada)
-Uma linha por chamada paga (`request_id` único), corpo JSON **sem** anunciante. A rodada grava
-nela cada resposta recebida, inclusive `notFound`.
+Uma linha por chamada paga com sucesso (`request_id` único), corpo JSON **sem** anunciante.
+`notFound` e erros não têm `data` e ficam só no `erro_resumo` de `rodada_fonte`.
 
 ## Em memória (não persistido)
 - **Contato**: `nome: str | None`, `telefone: str | None`, `whatsapp_url: str | None`. Vive

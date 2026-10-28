@@ -2,7 +2,12 @@ import textwrap
 
 import pytest
 
-from apebot.config import ConfiguracaoInvalida, carregar_filtros
+from apebot.config import (
+    ConfiguracaoInvalida,
+    carregar_filtros,
+    carregar_segredos,
+    problemas_gecko,
+)
 from apebot.modelos import Tipo
 
 BAIRROS = frozenset({"buritis", "funcionarios", "santa-monica", "sion"})
@@ -102,3 +107,46 @@ def test_tipos_vazio_ignora_pessoa(tmp_path):
     config = _carregar(tmp_path, VALIDO.replace("[apartamento, casa_condominio]", "[]"))
     assert config.pessoas == []
     assert config.problemas
+
+
+@pytest.fixture
+def ambiente(monkeypatch):
+    for nome, valor in {
+        "TELEGRAM_TOKEN": "t",
+        "MYSQL_USER": "u",
+        "MYSQL_PASSWORD": "p",
+    }.items():
+        monkeypatch.setenv(nome, valor)
+    monkeypatch.delenv("GECKO_API_KEY", raising=False)
+    monkeypatch.delenv("GECKO_FONTES", raising=False)
+    return monkeypatch
+
+
+def test_gecko_padrao_zap_sem_chave(ambiente):
+    segredos = carregar_segredos()
+    assert segredos.gecko_api_key == ""
+    assert segredos.gecko_fontes == ("zap",)
+    assert problemas_gecko(segredos) == ["GECKO_API_KEY ausente: Zap/OLX desligados"]
+
+
+def test_gecko_com_chave_e_fontes(ambiente):
+    ambiente.setenv("GECKO_API_KEY", "chave")
+    ambiente.setenv("GECKO_FONTES", " zap , OLX ")
+    segredos = carregar_segredos()
+    assert segredos.gecko_fontes == ("zap", "olx")
+    assert problemas_gecko(segredos) == []
+
+
+def test_gecko_fonte_desconhecida_ignorada(ambiente):
+    ambiente.setenv("GECKO_API_KEY", "chave")
+    ambiente.setenv("GECKO_FONTES", "zap,vivareal")
+    segredos = carregar_segredos()
+    assert segredos.gecko_fontes == ("zap",)
+    assert problemas_gecko(segredos) == ["GECKO_FONTES: valor desconhecido 'vivareal' ignorado"]
+
+
+def test_gecko_sem_fontes_nao_reclama_da_chave(ambiente):
+    ambiente.setenv("GECKO_FONTES", "")
+    segredos = carregar_segredos()
+    assert segredos.gecko_fontes == ()
+    assert problemas_gecko(segredos) == []
