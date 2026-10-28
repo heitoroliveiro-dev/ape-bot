@@ -82,6 +82,9 @@ cliente automatizado pode ser lido como "procedimento diverso". **Zona cinzenta:
 **Decisão do dono (28/10/2026):** ligar (`NETIMOVEIS=ligado`), mantendo baixo volume, `robots.txt` e nenhum
 contorno; se o portal bloquear ou pedir, a fonte é desligada.
 
+**Resultado no Railway (28/10/2026):** a sonda deu HTTP 403 a partir do IP do datacenter; a fonte ficou
+desligada em produção.
+
 ## 6. Resumo
 
 | Portal | Técnica | Termos | Situação |

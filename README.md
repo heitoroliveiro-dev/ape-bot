@@ -40,7 +40,7 @@ O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre
    |---|---|
    | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | os do `.env` |
    | `GECKO_FONTES` | `zap,olx` |
-   | `NETIMOVEIS` | `ligado` depois da sonda do passo 6 |
+   | `NETIMOVEIS` | `desligado` (o portal responde 403 ao IP do Railway; veja o passo 6) |
    | `MYSQL_HOST` / `MYSQL_PORT` | `${{MySQL.MYSQLHOST}}` / `${{MySQL.MYSQLPORT}}` |
    | `MYSQL_DATABASE` | `${{MySQL.MYSQLDATABASE}}` |
    | `MYSQL_USER` / `MYSQL_PASSWORD` | `${{MySQL.MYSQLUSER}}` / `${{MySQL.MYSQLPASSWORD}}` |
@@ -49,7 +49,8 @@ O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre
 4. **Pare o bot do notebook antes do primeiro deploy** (`docker compose stop app`): dois
    processos com o mesmo token disputam as mensagens do Telegram.
 5. Depois do deploy, nos logs: `migracoes_aplicadas` e `Application started`. Teste o QuintoAndar
-   a partir do IP do Railway: no serviço do bot, **⋯ → Shell** (ou `railway ssh`) e
+   a partir do IP do Railway: `railway login`, `railway link` (projeto e serviço do bot) e
+   `railway ssh` (na primeira vez ele registra a sua chave SSH; rode de novo para abrir o shell) e
    `python -m apebot.main --rodada-agora`; as 63 páginas precisam passar.
 6. Netimóveis: depois de ler os termos de uso do portal, rode no mesmo shell
    `python -m apebot.fontes.netimoveis` (uma busca, sem banco nem Telegram). Com `status=200` e
