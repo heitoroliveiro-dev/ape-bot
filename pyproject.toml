@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apebot"
-version = "0.1.0"
+version = "0.5.0"
 description = "Avisa no Telegram imóveis novos para alugar em Belo Horizonte"
 requires-python = ">=3.12"
 dependencies = [

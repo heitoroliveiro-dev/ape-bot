@@ -1,9 +1,11 @@
 # ape-bot — Arquitetura (enxuta)
 
-> Versão 1.4 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
+> Versão 1.6 · 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > 1.1: reflete a feature `001-mvp-quintoandar-telegram` implementada (spec/plan em `specs/001-*`).
 > 1.2: feature `002-geckoapi-zap-olx-telegram` (Zap via GeckoAPI, OLX pronta e desligada, comandos no Telegram).
 > 1.4: feature `004-lembrete-achados` (lembrete único de imóvel barato depois de 32 h).
+> 1.5: feature `005-netimoveis-fonte` (Netimóveis por busca pública e JSON-LD, ligado por `NETIMOVEIS`).
+> 1.6: OLX ligada (`GECKO_FONTES=zap,olx`) com localização por `state` + `city`, sem `region` (correção do suporte da GeckoAPI, constituição 2.2.1).
 > 1.3: feature `003-entrega-espacada-cadastro-telegram` (entrega espaçada, cadastro e edição de filtros pelo Telegram, regionais, favoritos e resumo das 23h); justificativa do escopo em 2.1.
 > Substitui a v0.4 (arquivada em `docs/historico/arquitetura-v0.4-completa.md`). Foco: projeto rápido.
 
@@ -19,7 +21,8 @@ Robô que coleta anúncios de aluguel em Belo Horizonte, guarda no MySQL e avisa
 | Aviso de imóvel novo, sem repetir | Cadastro aberto ao público ou aprovação de pessoas pelo Telegram |
 | Rodadas às 06, 09, 12, 15, 18, 21 e 23h (America/Sao_Paulo) | Limite diário de imóveis por pessoa |
 | Aviso ao operador em falhas repetidas, por fonte | Nuvem gerenciada (Azure) |
-| Zap via GeckoAPI (1 chamada por rodada); OLX pronta e desligada (`GECKO_FONTES`) | VivaReal (excluído: `notFound` e cobra crédito) |
+| Zap e OLX via GeckoAPI (1 chamada por portal por rodada; `GECKO_FONTES=zap,olx`) | VivaReal (excluído: `notFound` e cobra crédito) |
+| **005:** Netimóveis (coletor próprio, só a 1ª página de cada busca bairro × tipo; `NETIMOVEIS`, padrão desligado; `docs/spikes/002-netimoveis.md`) | Sitemap diário e página de detalhe do Netimóveis (IPTU) |
 | Mensagem com portal, botões "Abrir anúncio" e "WhatsApp" e contato do anunciante em trânsito | |
 | Comandos `/ajuda`, `/filtros`, `/status`, `/pausar`, `/retomar` e menu do bot | |
 | **003:** entrega espaçada, um imóvel por mensagem a cada 2–5 min (sorteado), só das 8h às 22h, mais baratos primeiro; sai o resumo em lista | |
@@ -42,13 +45,15 @@ O acesso continua em lista fechada (princípio IV), e o gasto da GeckoAPI não m
 
 **Fora de vez:** anti-captcha e qualquer contorno de Cloudflare ou de outra proteção antirrobô feito pelo próprio robô.
 
-**Exceção temporária (constituição 2.2.0, princípio III):** Zap e OLX entram pela API paga da GeckoAPI (`POST /v1/extract`, chave em `GECKO_API_KEY`, fontes em `GECKO_FONTES`), com no máximo 1 chamada de listagem por portal por rodada, na cidade inteira, com os filtros somados das pessoas ativas e sem chamadas de detalhe. Todo item passa por trava local de cidade/UF e pelo catálogo de bairros. O contato do anunciante vai só na mensagem (fila Redis) e nunca no MySQL. A fonte é desligada quando a busca do familiar terminar. Orçamento: refil de 1.000 créditos por R$ 49,90, e 1 portal × 7 rodadas = 210 créditos/mês.
+**Exceção temporária (constituição 2.2.0, princípio III):** Zap e OLX entram pela API paga da GeckoAPI (`POST /v1/extract`, chave em `GECKO_API_KEY`, fontes em `GECKO_FONTES`), com no máximo 1 chamada de listagem por portal por rodada, na cidade inteira, com os filtros somados das pessoas ativas e sem chamadas de detalhe. Todo item passa por trava local de cidade/UF e pelo catálogo de bairros. O contato do anunciante vai só na mensagem (fila Redis) e nunca no MySQL. A fonte é desligada quando a busca do familiar terminar. Orçamento: refil de 1.000 créditos por R$ 49,90; 2 portais × 7 rodadas × 30 dias = 420 créditos/mês.
 
 ## 3. Fluxo
 
 ```mermaid
 flowchart LR
     agenda["Agendador<br/>(7 rodadas/dia)"] --> qa["Coletor QuintoAndar<br/>httpx + BeautifulSoup"]
+    agenda --> neti["Coletor Netimóveis<br/>httpx + JSON-LD"]
+    neti --> trava
     agenda --> zap["Coletor Zap / OLX<br/>GeckoAPI (1 chamada)"]
     zap --> trava["Trava cidade/UF<br/>+ catálogo de bairros"]
     trava --> db
@@ -68,6 +73,7 @@ flowchart LR
 - **Lembrete de achados (004):** a cada rodada, depois dos imóveis novos, os já entregues há 32 h ou mais com aluguel até 70% do máximo da pessoa, nunca relembrados, vistos nas últimas 24 h e fora dos favoritos voltam para a fila da pessoa marcados como lembrete. O despachante reconfere e manda com "É um achado!!"; o entregador grava `envio.lembrado_em` (entregue ou falhou de vez), então cada imóvel é relembrado no máximo uma vez e não conta no resumo.
 - **Regionais:** os 283 bairros do catálogo (`dados/bairros_bh.csv`: slug do QuintoAndar, nome oficial e regional) vêm do PDF da PBH em `docs/referencias/`, por `scripts/regionais_pbh.py`, rodado uma vez.
 - **Coleta:** uma requisição por combinação bairro × tipo dos filtros, na URL pública `/alugar/imovel/{bairro}-belo-horizonte-mg-brasil/{tipo}`; dados do JSON `__NEXT_DATA__`; anúncios de bairros vizinhos que o portal mistura na página são descartados.
+- **Netimóveis (005):** uma busca por bairro × tipo em `/locacao/minas-gerais/belo-horizonte/bairros/{bairro}/{tipo}?quartos={menor mínimo}`, só a 1ª página (o `robots.txt` bloqueia `pag=`, preço e ordenação). Os dados vêm dos blocos JSON-LD (`ItemList`); tipo, bairro e cidade saem da URL do imóvel; busca sem `ItemList` é vazia; `netimoveis_corte` no log quando o total passa do que a página mostra. Cobertura e área privativa contam como apartamento. Sonda de acesso: `python -m apebot.fontes.netimoveis`.
 - **Sleep:** 2 a 5 s aleatórios entre requisições ao mesmo portal, e backoff em 429/5xx. Sem seguir redirects.
 - **Fontes isoladas:** cada fonte vira uma linha em `rodada_fonte` (`ok`, `falha`, `desligada`, `sem_credito`); a falha de uma não derruba as outras, e o alerta ao operador é por fonte. Página do QuintoAndar sem a lista carregada (falha passageira do portal) ganha uma nova tentativa e conta como erro de acesso, não de formato.
 - **Telegram:** menu de comandos; mensagem de imóvel com "Abrir anúncio", "WhatsApp" (quando houver) e "⭐ Salvar como favorito" (`/favoritos` lista); `/pausar` grava `pessoa.pausada_em` e limpa a fila da pessoa; `/status` mostra a última rodada, as fontes, a fila da pessoa e o saldo da GeckoAPI. Depois da rodada das 23h sai um resumo por pessoa (uma vez por dia, `resumo_diario`), com recebidos por portal e créditos.
@@ -91,6 +97,7 @@ O preço é guardado como o portal informa, em centavos.
 ape-bot/
 ├── src/apebot/
 │   ├── fontes/quintoandar.py   # URL, coleta (httpx) + parse
+│   ├── fontes/netimoveis.py    # buscas bairro × tipo, parse do JSON-LD, sonda
 │   ├── fontes/geckoapi.py      # cliente GeckoAPI, resposta sem anunciante, coleta genérica
 │   ├── fontes/zap.py · olx.py  # payload com filtros somados + parse
 │   ├── fontes/resultado.py     # ResultadoFonte, trava cidade/UF, bairro, WhatsApp
@@ -115,8 +122,9 @@ ape-bot/
 Só onde quebra: **parse** de cada fonte (com fixtures reais, sem internet), **filtro**, **conversa do cadastro** (valor em centavos, nome, transições), **despacho** (janela, ordem, intervalo, reconciliação) e **textos**. O resto é validado rodando.
 
 ## 8. Pendências
-1. OLX: ligar (`GECKO_FONTES=zap,olx`) só quando a GeckoAPI respeitar a localização; abrir chamado com os `request_id` de `resposta_fonte`.
+1. OLX: resolvido em 28/10/2026. O suporte da GeckoAPI confirmou que `region` (e a URL `belo-horizonte-e-regiao/...`) fazia a OLX ignorar a cidade; com só `state: MG` + `city: Belo Horizonte`, 1 chamada de teste trouxe 50 itens, todos de BH (46 aproveitados). URL equivalente: `https://www.olx.com.br/imoveis/aluguel/estado-mg/belo-horizonte?sf=1`.
 2. Ler os termos de uso do QuintoAndar.
-3. Onde roda: máquina própria, VPS barata ou VM na nuvem. O Docker Compose funciona em qualquer uma.
+3. Onde roda: Railway desde 28/10/2026 (`railway.json`, 1 réplica, MySQL e Redis do Railway); o Docker Compose segue para rodar local.
+6. Netimóveis: ler os termos de uso e rodar a sonda a partir do IP do Railway antes de `NETIMOVEIS=ligado`.
 4. GeckoAPI (teste no Playground em 27/10/2026, 6 créditos): VivaReal devolveu `notFound` para aluguel em BH; Zap funciona (22.060 imóveis, 30 por página), mas não ordena por data nem informa data de publicação, e traz `advertiser` com telefones; OLX ordena por data (`listedAt`), mas ignorou a localização, por campos e por URL, e devolveu 50 itens de fora de MG. Nenhum portal atende ainda ao modelo "1 chamada por rodada". As duas respostas estão em `resposta_fonte`; fixtures cortadas em `tests/fixtures/geckoapi/`. Próximo passo: chamado no suporte da GeckoAPI sobre OLX/VivaReal antes de comprar o refil.
 5. Tabela bairro → regional (003): feita. 240 dos 289 bairros do catálogo bateram direto com o PDF da PBH; 22 por apelido ou sufixo; 6 de fora de BH saíram; 21 ficaram em "Outros" (lista em `src/apebot/dados/bairros_bh.csv`). Se algum deles ganhar regional, ajustar `scripts/regionais_pbh.py` e gerar de novo.

@@ -39,7 +39,8 @@ O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre
    | Variável | Valor |
    |---|---|
    | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | os do `.env` |
-   | `GECKO_FONTES` | `zap` |
+   | `GECKO_FONTES` | `zap,olx` |
+   | `NETIMOVEIS` | `ligado` depois da sonda do passo 6 |
    | `MYSQL_HOST` / `MYSQL_PORT` | `${{MySQL.MYSQLHOST}}` / `${{MySQL.MYSQLPORT}}` |
    | `MYSQL_DATABASE` | `${{MySQL.MYSQLDATABASE}}` |
    | `MYSQL_USER` / `MYSQL_PASSWORD` | `${{MySQL.MYSQLUSER}}` / `${{MySQL.MYSQLPASSWORD}}` |
@@ -50,6 +51,10 @@ O `railway.json` sobe o bot pelo `Dockerfile`, com 1 réplica e reinício sempre
 5. Depois do deploy, nos logs: `migracoes_aplicadas` e `Application started`. Teste o QuintoAndar
    a partir do IP do Railway: no serviço do bot, **⋯ → Shell** (ou `railway ssh`) e
    `python -m apebot.main --rodada-agora`; as 63 páginas precisam passar.
+6. Netimóveis: depois de ler os termos de uso do portal, rode no mesmo shell
+   `python -m apebot.fontes.netimoveis` (uma busca, sem banco nem Telegram). Com `status=200` e
+   `lidos` maior que zero, mude `NETIMOVEIS` para `ligado` (o serviço reinicia sozinho). Com 403,
+   desafio ou timeout, deixe desligado: o robô não contorna bloqueio.
 
 Levar os dados do notebook (cadastros feitos pelo `/start`, favoritos, envios) é opcional:
 `docker compose exec mysql mysqldump -u root -p apebot > apebot.sql` e importar no MySQL do
@@ -63,4 +68,4 @@ docker compose run --rm app ruff check src tests
 
 ## Documentação
 - Arquitetura: `docs/arquitetura.md` · Constituição: `.specify/memory/constitution.md`
-- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX e comandos) e `specs/003-*` (entrega espaçada, cadastro, favoritos e resumo)
+- Features: `specs/001-*` (MVP), `specs/002-*` (Zap/OLX e comandos), `specs/003-*` (entrega espaçada, cadastro, favoritos e resumo), `specs/004-*` (lembrete de achados) e `specs/005-*` (Netimóveis)

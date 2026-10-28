@@ -38,7 +38,7 @@ COMANDOS = [
 ]
 TEXTO_PAUSADO = "⏸️ Avisos pausados. Use /retomar quando quiser voltar."
 TEXTO_RETOMADO = "▶️ Avisos retomados. Na próxima rodada eu volto a te mandar o que encontrar."
-ORDEM_FONTES = ("quintoandar", "zap", "olx")
+ORDEM_FONTES = ("quintoandar", "zap", "olx", "netimoveis")
 
 
 def texto_ajuda(fontes_ligadas: list[str]) -> str:

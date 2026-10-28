@@ -246,6 +246,7 @@ def test_texto_status_pessoa():
         "QuintoAndar: ✅ ok",
         "Zap: ⚠️ falha (HTTP 503 &lt;servidor&gt;)",
         "OLX: ⏹️ desligado",
+        "Netimóveis: ⏹️ desligado",
     ]
 
 
@@ -287,6 +288,7 @@ def test_texto_resumo():
         "QuintoAndar: 5",
         "Zap: 2",
         "OLX: 0",
+        "Netimóveis: 0",
         "💳 Créditos: 94 (gastos em 24 h: 7)",
     ]
 
@@ -338,3 +340,14 @@ def test_mensagem_lembrete():
         "💰Valor: R$ 2.700,00\n"
         "Link: https://www.quintoandar.com.br/imovel/1"
     )
+
+
+def test_netimoveis_na_ajuda_status_e_resumo():
+    assert "Portais: QuintoAndar, Netimóveis" in texto_ajuda(["quintoandar", "netimoveis"])
+    proxima = datetime(2026, 10, 28, 15, 0, tzinfo=FUSO)
+    ligadas = ["quintoandar", "netimoveis"]
+    ok = texto_status(None, proxima, 0, {"netimoveis": ("ok", None)}, ligadas)
+    assert "Netimóveis: ✅ ok" in ok.splitlines()
+    falha = texto_status(None, proxima, 0, {"netimoveis": ("falha", "acesso: HTTP 403")}, ligadas)
+    assert "Netimóveis: ⚠️ falha (acesso: HTTP 403)" in falha.splitlines()
+    assert "Netimóveis: 3" in texto_resumo(None, proxima, {"netimoveis": 3}, None).splitlines()

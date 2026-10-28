@@ -1,4 +1,8 @@
-"""OLX via GeckoAPI: pronta, mas desligada até a API respeitar a localização (research R4)."""
+"""OLX via GeckoAPI (research R4 da 002).
+
+Localização só por `state` + `city`: com `region` (ou a URL `belo-horizonte-e-regiao/...`) a OLX
+ignorava a cidade. Correção validada pelo suporte da GeckoAPI em 28/10/2026.
+"""
 
 import re
 from typing import Any
@@ -17,7 +21,6 @@ def payload_olx(pessoas: list[Pessoa]) -> dict[str, Any]:
         "type": "plp",
         "page": 1,
         "state": "MG",
-        "region": "Belo Horizonte e Regiao",
         "city": "Belo Horizonte",
         "categoryPath": "imoveis/aluguel",
         "sort": "date",

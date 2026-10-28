@@ -18,9 +18,10 @@ from apebot.config import (
     carregar_segredos,
     problemas_entrega,
     problemas_gecko,
+    problemas_netimoveis,
 )
 from apebot.fila import Fila, FilaPessoa, Mensagem
-from apebot.fontes import olx, quintoandar, zap
+from apebot.fontes import netimoveis, olx, quintoandar, zap
 from apebot.fontes.geckoapi import ClienteGecko
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.mensagens import COMANDOS, aviso_configuracao
@@ -69,6 +70,12 @@ class Fontes:
             else:
                 coletar = partial(_desligada, nome)
             self.coletores.append(Coletor(nome, coletar))
+        if segredos.netimoveis:
+            coletar = partial(netimoveis.coletar, catalogo=catalogo, simular_falha=simular_falha)
+            self.ligadas.append("netimoveis")
+        else:
+            coletar = partial(_desligada, "netimoveis")
+        self.coletores.append(Coletor("netimoveis", coletar))
         log.info("fontes_ligadas %s", ",".join(self.ligadas))
 
 
@@ -201,7 +208,9 @@ def main() -> None:
     args = _argumentos()
     segredos = carregar_segredos()
     config = carregar_configuracao(segredos, bairros_validos())
-    config.problemas.extend(problemas_gecko(segredos) + problemas_entrega(segredos))
+    config.problemas.extend(
+        problemas_gecko(segredos) + problemas_entrega(segredos) + problemas_netimoveis(segredos)
+    )
     for problema in config.problemas:
         log.warning("filtros_problema %s", problema)
     banco = _preparar_banco(segredos, config)

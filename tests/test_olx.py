@@ -106,7 +106,6 @@ def test_payload_olx():
         "type": "plp",
         "page": 1,
         "state": "MG",
-        "region": "Belo Horizonte e Regiao",
         "city": "Belo Horizonte",
         "categoryPath": "imoveis/aluguel",
         "sort": "date",
