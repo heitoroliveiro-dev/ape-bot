@@ -35,6 +35,7 @@ class Segredos:
     gecko_fontes_desconhecidas: tuple[str, ...] = ()
     entrega_intervalo: tuple[int, int] = ENTREGA_INTERVALO_PADRAO
     entrega_intervalo_invalido: str | None = None
+    filtros_yaml: str = ""  # conteúdo do filtros.yaml (Railway, sem arquivo montado)
 
 
 @dataclass
@@ -63,6 +64,7 @@ def carregar_segredos() -> Segredos:
         mysql_password=obrigatoria("MYSQL_PASSWORD"),
         redis_url=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
         filtros_path=Path(os.environ.get("FILTROS_PATH", "filtros.yaml")),
+        filtros_yaml=os.environ.get("FILTROS_YAML", ""),
         migrations_path=Path(os.environ.get("MIGRATIONS_PATH", "migrations")),
         gecko_api_key=os.environ.get("GECKO_API_KEY", "").strip(),
         **_fontes_gecko(os.environ.get("GECKO_FONTES", "zap")),
@@ -144,8 +146,19 @@ def nome_bairro(bairro_slug: str) -> str:
     return _nomes().get(bairro_slug) or bairro_slug.replace("-", " ").title()
 
 
+def carregar_configuracao(segredos: Segredos, bairros: frozenset[str]) -> Configuracao:
+    """FILTROS_YAML (conteúdo, para o Railway) tem prioridade sobre o arquivo em FILTROS_PATH."""
+    if segredos.filtros_yaml.strip():
+        return ler_filtros(segredos.filtros_yaml, bairros)
+    return carregar_filtros(segredos.filtros_path, bairros)
+
+
 def carregar_filtros(caminho: Path, bairros: frozenset[str]) -> Configuracao:
-    dados = yaml.safe_load(Path(caminho).read_text(encoding="utf-8")) or {}
+    return ler_filtros(Path(caminho).read_text(encoding="utf-8"), bairros)
+
+
+def ler_filtros(texto: str, bairros: frozenset[str]) -> Configuracao:
+    dados = yaml.safe_load(texto) or {}
     operador = dados.get("operador_chat_id")
     entradas = dados.get("pessoas") or []
 

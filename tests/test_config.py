@@ -4,6 +4,7 @@ import pytest
 
 from apebot.config import (
     ConfiguracaoInvalida,
+    carregar_configuracao,
     carregar_filtros,
     carregar_segredos,
     problemas_entrega,
@@ -126,6 +127,7 @@ def ambiente(monkeypatch):
     monkeypatch.delenv("GECKO_API_KEY", raising=False)
     monkeypatch.delenv("GECKO_FONTES", raising=False)
     monkeypatch.delenv("ENTREGA_INTERVALO", raising=False)
+    monkeypatch.delenv("FILTROS_YAML", raising=False)
     return monkeypatch
 
 
@@ -183,3 +185,17 @@ def test_entrega_intervalo_invalido_usa_padrao(ambiente, valor):
     segredos = carregar_segredos()
     assert segredos.entrega_intervalo == (120, 300)
     assert problemas_entrega(segredos) == [f"ENTREGA_INTERVALO inválido '{valor}'; usando 120-300"]
+
+
+def test_filtros_yaml_na_variavel_tem_prioridade(ambiente, tmp_path):
+    ambiente.setenv("FILTROS_PATH", str(tmp_path / "nao-existe.yaml"))
+    ambiente.setenv("FILTROS_YAML", textwrap.dedent(VALIDO))
+    config = carregar_configuracao(carregar_segredos(), BAIRROS)
+    assert config.autorizados == {1: "Heitor"}
+
+
+def test_sem_variavel_le_o_arquivo(ambiente, tmp_path):
+    caminho = tmp_path / "filtros.yaml"
+    caminho.write_text(textwrap.dedent(VALIDO), encoding="utf-8")
+    ambiente.setenv("FILTROS_PATH", str(caminho))
+    assert carregar_configuracao(carregar_segredos(), BAIRROS).operador_chat_id == 1

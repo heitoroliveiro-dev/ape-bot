@@ -14,7 +14,7 @@ from apebot.config import (
     Configuracao,
     Segredos,
     bairros_validos,
-    carregar_filtros,
+    carregar_configuracao,
     carregar_segredos,
     problemas_entrega,
     problemas_gecko,
@@ -200,7 +200,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     args = _argumentos()
     segredos = carregar_segredos()
-    config = carregar_filtros(segredos.filtros_path, bairros_validos())
+    config = carregar_configuracao(segredos, bairros_validos())
     config.problemas.extend(problemas_gecko(segredos) + problemas_entrega(segredos))
     for problema in config.problemas:
         log.warning("filtros_problema %s", problema)
