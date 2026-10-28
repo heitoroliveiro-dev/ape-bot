@@ -2,8 +2,8 @@
 
 > 28/10/2026 · Heitor Oliveiro · Apoio: Claude
 > Resultado: **nenhum portal novo liberado para o robô.** Chaves na Mão é tecnicamente o melhor (MCP oficial),
-> mas os termos proíbem coleta automatizada; Casa Mineira tem dados na página, termos não lidos; Lugar Certo e
-> Imovelweb fora. Revisão dos termos do Netimóveis (spike 002) no fim.
+> mas os termos proíbem coleta automatizada; Casa Mineira também proíbe robôs nos termos (item 1.4.2); Lugar
+> Certo e Imovelweb fora. Revisão dos termos do Netimóveis (spike 002) no fim.
 > Cliente: `curl` com `User-Agent: ape-bot/0.1 (uso pessoal; baixo volume)`, 2–3 s entre requisições; ~30
 > requisições no total.
 
@@ -53,8 +53,13 @@ consulta sozinho 7 vezes por dia e guarda os anúncios.
 - `/aluguel/apartamento/centro_belo-horizonte_mg` → 200, 900 KB, 30 blocos JSON-LD com os imóveis e preços
   no HTML (sem JavaScript). URLs por bairro no sitemap (`sitemaps.casamineira.com.br`).
 - É do mesmo grupo do Imovelweb e do QuintoAndar (Navent/QuintoAndar).
-- **Termos não lidos:** a página (`help.casamineira.com.br/s/article/Termos-e-Condi%C3%A7%C3%B5es-de-Uso-CM`) só
-  renderiza com JavaScript. **Pendente: leitura humana** antes de qualquer feature.
+- **Termos** (lidos em 28/10/2026 pelo navegador, porque a página só renderiza com JavaScript;
+  `help.casamineira.com.br/s/article/Termos-e-Condi%C3%A7%C3%B5es-de-Uso-CM`, versão de 25/06/2020). O item
+  1.4.2 proíbe especificamente:
+  > "O uso ou tentativa de uso de qualquer máquina, software, ferramenta, agente ou outro mecanismo para navegar
+  > ou buscar neste Site que sejam diferentes das ferramentas de busca fornecidas pela CASA MINEIRA neste Site."
+
+  **Decisão: fora.** É proibição expressa de robô, não zona cinzenta; só com autorização por escrito.
 
 ## 3. Lugar Certo (Estado de Minas)
 - `robots.txt` com `Allow: /`, mas a home só renderiza com JavaScript e o índice de sitemaps de anúncios
@@ -80,6 +85,6 @@ cliente automatizado pode ser lido como "procedimento diverso". **Zona cinzenta:
 |---|---|---|---|
 | Netimóveis | ✅ HTML + JSON-LD, 1ª página | ⚠️ item 3.4 genérico | Implementado (005), **desligado**; decisão do dono |
 | Chaves na Mão | ✅✅ MCP oficial, maior estoque | ❌ proíbe coleta automatizada | Só com autorização escrita; uso interativo é livre |
-| Casa Mineira | ✅ HTML + JSON-LD | ❓ não lidos (página só com JS) | Ler os termos antes de qualquer coisa |
+| Casa Mineira | ✅ HTML + JSON-LD | ❌ item 1.4.2 proíbe robôs | Fora (só com autorização escrita) |
 | Lugar Certo | ❌ sem anúncios de MG | — | Fora |
 | Imovelweb | ❌ desafio Cloudflare | — | Fora |
