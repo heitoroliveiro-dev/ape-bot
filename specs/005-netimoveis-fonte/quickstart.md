@@ -42,5 +42,7 @@ Pré-requisito: termos de uso do Netimóveis lidos e sonda do passo 3 ok.
   - `python -m apebot.fontes.netimoveis` → `status=200 total=39 lidos=21 anuncios=21 descartados={}` e
     `netimoveis_corte bairro=centro tipo=apartamento total=39 lidos=21`.
   - `python -m apebot.fontes.netimoveis funcionarios apartamento` → `status=200 total=43 lidos=21 anuncios=21`.
-- **3. Sonda no Railway** e **leitura dos termos de uso**: pendentes (dono). `NETIMOVEIS` segue `desligado`
-  até lá.
+- **3. Sonda no Railway** (28/10/2026, 17:52, `railway ssh`): `erro=acesso: HTTP 403`. O Netimóveis bloqueia
+  o IP do datacenter (do IP residencial a mesma URL dá 200). **`NETIMOVEIS` fica `desligado` em produção**;
+  coletar de outro IP para escapar do bloqueio seria contorno (constituição III). Caminho: pedir autorização
+  ao Netimóveis; se liberarem o acesso, basta `NETIMOVEIS=ligado`.

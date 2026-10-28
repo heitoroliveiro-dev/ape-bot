@@ -41,7 +41,7 @@ Neighborhood and region table (only if the catalog changes):
    |---|---|
    | `TELEGRAM_TOKEN`, `GECKO_API_KEY` | the ones from `.env` |
    | `GECKO_FONTES` | `zap,olx` |
-   | `NETIMOVEIS` | `ligado` (on) after the probe in step 6 |
+   | `NETIMOVEIS` | `off` by default (the portal returns 403 to Railway's IP; see step 6) |
    | `MYSQL_HOST` / `MYSQL_PORT` | `${{MySQL.MYSQLHOST}}` / `${{MySQL.MYSQLPORT}}` |
    | `MYSQL_DATABASE` | `${{MySQL.MYSQLDATABASE}}` |
    | `MYSQL_USER` / `MYSQL_PASSWORD` | `${{MySQL.MYSQLUSER}}` / `${{MySQL.MYSQLPASSWORD}}` |
@@ -50,8 +50,9 @@ Neighborhood and region table (only if the catalog changes):
 4. **Stop the bot on the laptop before the first deploy** (`docker compose stop app`): two
    processes with the same token compete for Telegram messages.
 5. After the deploy, check the logs for `migracoes_aplicadas` and `Application started`. Test
-   QuintoAndar from Railway's IP: in the bot service, **⋯ → Shell** (or `railway ssh`) and
-   `python -m apebot.main --rodada-agora`; all 63 pages must go through.
+   QuintoAndar from Railway's IP: run `railway login`, `railway link` (select the project and bot
+   service), then `railway ssh` (the first run registers your SSH key; run it again to open the
+   shell) and `python -m apebot.main --rodada-agora`; all 63 pages must go through.
 6. Netimóveis: after reading the portal's terms of use, run in the same shell
    `python -m apebot.fontes.netimoveis` (a single search, no database or Telegram). With
    `status=200` and `lidos` greater than zero, set `NETIMOVEIS` to `ligado` (the service restarts
