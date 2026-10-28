@@ -5,10 +5,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from datetime import time as horario
 from functools import partial
 
-from telegram.ext import Application, ContextTypes
+from telegram.ext import Application
 
 from apebot.banco import Banco
 from apebot.config import (
@@ -26,13 +25,14 @@ from apebot.fontes.geckoapi import ClienteGecko
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.mensagens import COMANDOS, aviso_configuracao
 from apebot.modelos import FUSO, HORARIOS_RODADA, Pessoa
-from apebot.rodada import Coletor, Rodada, enviar_resumos
+from apebot.rodada import Coletor, Rodada, enviar_resumos, rodada_devida
 from apebot.telegram_bot import Despachante, Entregador, registrar_handlers
 
 log = logging.getLogger("apebot")
 
 ESPERA_FILA_MAX_SEGUNDOS = 600
 HORA_RESUMO = 23
+INTERVALO_AGENDADOR = 60
 TENTATIVAS_BANCO = 30
 
 
@@ -147,16 +147,38 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
             fila, fila_pessoa, banco, config.autorizados, segredos.entrega_intervalo
         )
         tarefas.append(asyncio.create_task(despachante.executar()))
+        tarefas.append(asyncio.create_task(agendar_rodadas()))
 
     async def ao_encerrar(_: Application) -> None:
         for tarefa in tarefas:
             tarefa.cancel()
         await fila.fechar()
 
-    async def rodada_agendada(contexto: ContextTypes.DEFAULT_TYPE) -> None:
+    async def rodada_agendada(momento: datetime) -> None:
+        ultima = await asyncio.to_thread(banco.ultima_rodada_iniciada)
+        devida = rodada_devida(momento, ultima)
+        if devida is None:
+            return
+        if not await asyncio.to_thread(banco.pessoas_ativas, config.autorizados):
+            log.info("rodada_pulada_sem_pessoas horario=%s", devida.strftime("%H:%M"))
+            return
+        atraso = (momento - devida).total_seconds()
+        log.info("rodada_disparada horario=%s atraso=%.0fs", devida.strftime("%H:%M"), atraso)
         await Rodada(banco, fila, fila_pessoa, config, fontes.coletores).executar()
-        if contexto.job.name == f"rodada_{HORA_RESUMO:02d}h":  # depois da rodada, ok ou falha
+        if devida.hour == HORA_RESUMO:  # depois da rodada, ok ou falha
             await enviar_resumos(banco, fila, fontes.gecko, config.autorizados, datetime.now(FUSO))
+
+    async def agendar_rodadas() -> None:
+        # laço próprio no relógio de parede: o timer do APScheduler usa o relógio monotônico,
+        # que para quando o PC suspende, e a rodada se perdia sem log
+        while True:
+            try:
+                await rodada_agendada(datetime.now(FUSO))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("agendador_erro")
+            await asyncio.sleep(INTERVALO_AGENDADOR)
 
     app = (
         Application.builder()
@@ -166,13 +188,6 @@ def _rodar_bot(banco: Banco, segredos: Segredos, config: Configuracao, fontes: F
         .build()
     )
     registrar_handlers(app, config, banco, fila_pessoa, fontes.ligadas, fontes.gecko)
-    for hora in HORARIOS_RODADA:
-        app.job_queue.run_daily(
-            rodada_agendada,
-            time=horario(hour=hora, tzinfo=FUSO),
-            name=f"rodada_{hora:02d}h",
-            job_kwargs={"max_instances": 1, "coalesce": True, "misfire_grace_time": 300},
-        )
     log.info("rodadas_agendadas horarios=%s fuso=%s", HORARIOS_RODADA, FUSO.key)
     app.run_polling()
 

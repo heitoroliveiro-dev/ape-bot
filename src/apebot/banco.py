@@ -439,6 +439,12 @@ class Banco:
             linha = c.fetchone()
             return linha[0] if linha else None
 
+    def ultima_rodada_iniciada(self) -> datetime | None:
+        with self._cursor() as c:
+            c.execute("SELECT MAX(iniciada_em) FROM rodada")
+            linha = c.fetchone()
+            return linha[0] if linha else None
+
     def estados_fonte(self) -> dict[str, tuple[str, str | None]]:
         """fonte → (status, erro_resumo) da última rodada em que a fonte aparece."""
         with self._cursor() as c:

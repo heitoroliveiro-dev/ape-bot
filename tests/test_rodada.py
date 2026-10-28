@@ -10,8 +10,15 @@ import pytest
 from apebot.config import Configuracao, bairros_validos
 from apebot.fontes.resultado import ResultadoFonte
 from apebot.fontes.zap import extrair_zap
-from apebot.modelos import Filtro, Pessoa, Tipo
-from apebot.rodada import Coletor, Rodada, decidir_alerta, enviar_resumos, status_rodada
+from apebot.modelos import FUSO, Filtro, Pessoa, Tipo
+from apebot.rodada import (
+    Coletor,
+    Rodada,
+    decidir_alerta,
+    enviar_resumos,
+    rodada_devida,
+    status_rodada,
+)
 from tests.test_despacho import FilaPessoaFalsa
 
 
@@ -49,6 +56,31 @@ AGORA = datetime(2026, 10, 28, 12, 0)
 )
 def test_decidir_alerta(status, seguidas, aberto_em, esperado):
     assert decidir_alerta(status, seguidas, aberto_em, AGORA) == esperado
+
+
+def _sp(dia: int, hora: int, minuto: int = 0, segundo: int = 0) -> datetime:
+    return datetime(2026, 10, dia, hora, minuto, segundo, tzinfo=FUSO)
+
+
+@pytest.mark.parametrize(
+    ("momento", "ultima_iniciada", "esperado"),
+    [
+        # PC acordou às 08:09; última rodada à 00:32 (03:32 UTC)
+        (_sp(28, 8, 9), datetime(2026, 10, 28, 3, 32), _sp(28, 6)),
+        (_sp(28, 9, 0, 30), datetime(2026, 10, 28, 9, 1), _sp(28, 9)),
+        (_sp(28, 9, 30), datetime(2026, 10, 28, 12, 0), None),
+        # 23h de ontem passou da janela: espera a das 06h
+        (_sp(28, 5), datetime(2026, 10, 28, 0, 0), None),
+        (_sp(28, 23, 30), datetime(2026, 10, 29, 0, 5), _sp(28, 23)),
+        # virada do dia: às 00:30 a devida ainda é a das 23h de ontem
+        (_sp(29, 0, 30), datetime(2026, 10, 29, 0, 5), _sp(28, 23)),
+        (_sp(28, 10), None, _sp(28, 9)),
+        (_sp(28, 11, 10), None, _sp(28, 9)),
+        (_sp(28, 4), None, None),
+    ],
+)
+def test_rodada_devida(momento, ultima_iniciada, esperado):
+    assert rodada_devida(momento, ultima_iniciada) == esperado
 
 
 # --- rodada com várias fontes (banco e fila falsos, sem rede) ---

@@ -60,9 +60,9 @@ ANUNCIO = Anuncio(
 
 def test_mensagem_imovel():
     assert mensagem_imovel(ANUNCIO) == (
-        "Veja o imóvel que encontrei:\n"
+        "🏡Veja o imóvel que encontrei:\n"
         "2 quartos no bairro Buritis\n"
-        "Valor: R$ 2.700,00\n"
+        "💰Valor: R$ 2.700,00\n"
         "Link: https://www.quintoandar.com.br/imovel/1"
     )
 
@@ -93,9 +93,9 @@ CONTATO = Contato(
 
 def test_mensagem_imovel_com_contato():
     assert mensagem_imovel(ZAP, CONTATO) == (
-        "Veja o imóvel que encontrei:\n"
+        "🏡Veja o imóvel que encontrei:\n"
         "2 quartos no bairro Gutierrez\n"
-        "Valor: R$ 2.700,00\n"
+        "💰Valor: R$ 2.700,00\n"
         f"Link: {ZAP.url}\n"
         "👤 Imobiliária &lt;Teste&gt; &amp; Cia\n"
         "📞 (31) 98298-4510"

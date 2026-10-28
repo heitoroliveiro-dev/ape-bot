@@ -188,9 +188,9 @@ def _quartos_no_bairro(anuncio: Anuncio) -> str:
 def mensagem_imovel(anuncio: Anuncio, contato: Contato | None = None) -> str:
     """Um imóvel por mensagem (contracts/telegram.md da 003); contato só quando em trânsito."""
     linhas = [
-        "Veja o imóvel que encontrei:",
+        "🏡Veja o imóvel que encontrei:",
         _quartos_no_bairro(anuncio),
-        f"Valor: {formatar_reais(anuncio.aluguel_centavos)}",
+        f"💰Valor: {formatar_reais(anuncio.aluguel_centavos)}",
         f"Link: {escape(anuncio.url)}",
     ]
     if contato and contato.nome:

@@ -68,10 +68,11 @@ flowchart LR
 - **Sleep:** 2 a 5 s aleatórios entre requisições ao mesmo portal, e backoff em 429/5xx. Sem seguir redirects.
 - **Fontes isoladas:** cada fonte vira uma linha em `rodada_fonte` (`ok`, `falha`, `desligada`, `sem_credito`); a falha de uma não derruba as outras, e o alerta ao operador é por fonte. Página do QuintoAndar sem a lista carregada (falha passageira do portal) ganha uma nova tentativa e conta como erro de acesso, não de formato.
 - **Telegram:** menu de comandos; mensagem de imóvel com "Abrir anúncio", "WhatsApp" (quando houver) e "⭐ Salvar como favorito" (`/favoritos` lista); `/pausar` grava `pessoa.pausada_em` e limpa a fila da pessoa; `/status` mostra a última rodada, as fontes, a fila da pessoa e o saldo da GeckoAPI. Depois da rodada das 23h sai um resumo por pessoa (uma vez por dia, `resumo_diario`), com recebidos por portal e créditos.
-- **Processo único:** bot, agendador (`JobQueue`), despachante e entregador rodam no mesmo processo; Docker Compose com `restart: unless-stopped`.
+- **Processo único:** bot, agendador, despachante e entregador rodam no mesmo processo; Docker Compose com `restart: unless-stopped`.
+- **Agendador no relógio de parede:** a cada 60 s confere se um horário de rodada passou sem rodada no banco (`rodada.iniciada_em`) e roda uma vez, com até 3 h de atraso. Não usa o `JobQueue`: o timer dele segue o relógio monotônico, que para quando o PC suspende, e a rodada se perdia sem log.
 
 ## 4. Stack
-Python 3.12 · `httpx` · `beautifulsoup4` · `python-telegram-bot` (com `JobQueue`) · `redis` · `PyMySQL` + SQL puro · `pytest` · `ruff` · Docker Compose (app + MySQL + Redis). Playwright só entra se uma fonte permitida exigir JavaScript; o QuintoAndar não exige (os dados vêm no `__NEXT_DATA__`).
+Python 3.12 · `httpx` · `beautifulsoup4` · `python-telegram-bot` · `redis` · `PyMySQL` + SQL puro · `pytest` · `ruff` · Docker Compose (app + MySQL + Redis). Playwright só entra se uma fonte permitida exigir JavaScript; o QuintoAndar não exige (os dados vêm no `__NEXT_DATA__`).
 
 ## 5. Dados
 

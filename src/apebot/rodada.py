@@ -10,7 +10,7 @@ import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from apebot.banco import Banco, agora
 from apebot.config import Configuracao
@@ -19,14 +19,23 @@ from apebot.filtro import novos_para
 from apebot.fontes.geckoapi import ClienteGecko, saldo
 from apebot.fontes.resultado import ResultadoFonte, status_rodada
 from apebot.mensagens import aviso_falha, aviso_recuperacao, proxima_rodada, texto_resumo
-from apebot.modelos import FUSO, Anuncio, Contato, Pessoa
+from apebot.modelos import FUSO, HORARIOS_RODADA, Anuncio, Contato, Pessoa
 
-__all__ = ["Coletor", "Rodada", "decidir_alerta", "enviar_resumos", "status_rodada"]
+__all__ = [
+    "Coletor",
+    "Rodada",
+    "decidir_alerta",
+    "enviar_resumos",
+    "rodada_devida",
+    "status_rodada",
+]
 
 log = logging.getLogger(__name__)
 
 FALHAS_PARA_ALERTA = 3
 REAVISO = timedelta(hours=24)
+# rodada perdida (PC suspenso, robô parado) ainda roda se o atraso couber aqui
+JANELA_ATRASO = timedelta(hours=3)
 
 Chave = tuple[str, str]
 
@@ -48,6 +57,26 @@ def decidir_alerta(
     if ultimo_aviso is not None:
         return "reavisar" if momento - ultimo_aviso >= REAVISO else "nada"
     return "abrir" if seguidas >= FALHAS_PARA_ALERTA else "nada"
+
+
+def rodada_devida(momento: datetime, ultima_iniciada: datetime | None) -> datetime | None:
+    """Horário de HORARIOS_RODADA que já passou e ainda não rodou, ou None.
+
+    Olha o relógio de parede, não o monotônico: depois de o PC suspender, a rodada perdida
+    roda ao acordar. `ultima_iniciada` vem do banco em UTC sem fuso, como `agora()`.
+    """
+    local = momento.astimezone(FUSO)
+    horarios = [
+        datetime(dia.year, dia.month, dia.day, hora, tzinfo=FUSO)
+        for dia in (local.date() - timedelta(days=1), local.date())
+        for hora in HORARIOS_RODADA
+    ]
+    horario = max(h for h in horarios if h <= local)
+    if local - horario > JANELA_ATRASO:
+        return None
+    if ultima_iniciada is not None and ultima_iniciada.replace(tzinfo=UTC) >= horario:
+        return None
+    return horario
 
 
 class Rodada:
